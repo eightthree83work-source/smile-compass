@@ -12,10 +12,25 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const APP_TITLE = "smile compass";
+const APP_DESCRIPTION =
+  "住まい探しに、笑顔のコンパスを。中古戸建ての購入を検討する30〜40代に向けて、不動産屋・宅建士・住宅診断士・FPの4つの視点でセルフ診断できるアプリです。";
+
 export const metadata: Metadata = {
-  title: "smile compass",
-  description:
-    "住まい探しに、笑顔のコンパスを。中古戸建ての購入を検討する30〜40代に向けて、不動産屋・宅建士・住宅診断士・FPの4つの視点でセルフ診断できるアプリです。",
+  metadataBase: new URL("https://smile-compass.vercel.app"),
+  title: APP_TITLE,
+  description: APP_DESCRIPTION,
+  openGraph: {
+    title: APP_TITLE,
+    description: APP_DESCRIPTION,
+    type: "website",
+    locale: "ja_JP",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: APP_TITLE,
+    description: APP_DESCRIPTION,
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
