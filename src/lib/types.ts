@@ -39,6 +39,8 @@ export interface Property {
   propertyTaxAnnualManYen?: number;
   /** 年間維持費（万円）。管理費・修繕積立金・保険料などの合計目安。任意入力、未入力なら0として扱う */
   annualMaintenanceCostManYen?: number;
+  /** 敷地面積（坪）。任意入力、建物価格の目安試算にのみ使用 */
+  landAreaTsubo?: number;
 }
 
 export function createDefaultProperty(): Property {

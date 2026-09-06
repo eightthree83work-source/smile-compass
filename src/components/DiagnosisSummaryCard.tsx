@@ -3,11 +3,16 @@ import { calculateLifetimeCostEstimate, calculateLoanRepayment } from "@/lib/cal
 import { getLegalChecklist } from "@/lib/legalChecklist";
 import { getInspectionChecklist } from "@/lib/inspectionChecklist";
 import { VALUATION_JUDGMENT_LABELS, calculatePricePerTsuboManYen, judgeValuation } from "@/lib/valuation";
-import { FpAdvisorIcon, InspectorIcon, LegalAdvisorIcon, RealtorIcon } from "@/components/icons/AdvisorIcons";
+import {
+  FpAdvisorFaceIcon,
+  InspectorFaceIcon,
+  LegalAdvisorFaceIcon,
+  RealtorFaceIcon,
+} from "@/components/icons/AdvisorCharacterImages";
 
 interface DiagnosisSummaryCardProps {
   property: Property;
-  /** 不動産屋の目タブで入力・取得された、周辺相場の坪単価（万円） */
+  /** 不動産プロのサポートタブで入力・取得された、周辺相場の坪単価（万円） */
   marketPricePerTsuboManYen: number;
 }
 
@@ -72,8 +77,8 @@ export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManY
       <dl className="mt-6 grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
         <div>
           <dt className="flex items-center gap-1.5 text-xs text-ink/45">
-            <RealtorIcon className="h-5 w-5 shrink-0 text-ink/50" />
-            不動産屋の目｜坪単価判定
+            <RealtorFaceIcon className="h-5 w-5 shrink-0" />
+            不動産プロのサポート｜坪単価判定
           </dt>
           <dd
             className={`mt-1 font-heading text-xl ${
@@ -86,25 +91,27 @@ export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManY
 
         <div>
           <dt className="flex items-center gap-1.5 text-xs text-ink/45">
-            <FpAdvisorIcon className="h-5 w-5 shrink-0 text-ink/50" />
-            FPの目｜月々返済額
+            <FpAdvisorFaceIcon className="h-5 w-5 shrink-0" />
+            FPのサポート｜月々返済額
           </dt>
           <dd className="mt-1 font-heading text-xl text-ink">{formatYen(repayment.monthlyPayment)}</dd>
         </div>
 
         <div>
           <dt className="flex items-center gap-1.5 text-xs text-ink/45">
-            <FpAdvisorIcon className="h-5 w-5 shrink-0 text-ink/50" />
-            FPの目｜生涯コストの目安
+            <FpAdvisorFaceIcon className="h-5 w-5 shrink-0" />
+            FPのサポート｜生涯コストの目安
           </dt>
           <dd className="mt-1 font-heading text-xl text-ink">{formatYen(lifetimeCost.netLifetimeCost)}</dd>
         </div>
 
         <div>
           <dt className="flex items-center gap-1.5 text-xs text-ink/45">
-            <LegalAdvisorIcon className="h-5 w-5 shrink-0 text-ink/50" />
-            <InspectorIcon className="h-5 w-5 shrink-0 text-ink/50" />
-            宅建士・住宅診断士｜要確認項目数
+            <span className="flex -space-x-1.5">
+              <LegalAdvisorFaceIcon className="h-5 w-5 shrink-0 ring-2 ring-white" />
+              <InspectorFaceIcon className="h-5 w-5 shrink-0 ring-2 ring-white" />
+            </span>
+            宅建士・住宅診断士のサポート｜要確認項目数
           </dt>
           <dd className="mt-1 font-heading text-xl text-ink">
             {legalChecklist.length + inspectionChecklist.length}項目

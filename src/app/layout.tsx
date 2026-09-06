@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "物件カルテ",
-  description: "中古戸建て購入の意思決定を、不動産屋・宅建士・住宅診断士・FPの4つの視点で支援します。",
+  title: "smile compass",
+  description:
+    "住まい探しに、笑顔のコンパスを。中古戸建ての購入を検討する30〜40代に向けて、不動産屋・宅建士・住宅診断士・FPの4つの視点でセルフ診断できるアプリです。",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

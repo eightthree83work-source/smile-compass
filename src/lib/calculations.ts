@@ -1,9 +1,11 @@
-import { Property } from "./types";
+import { Property, StructureType } from "./types";
 
+/** 借入限度額（万円）。中古住宅の場合、認定住宅等（認定長期優良住宅・認定低炭素住宅・ZEH水準省エネ住宅・省エネ基準適合住宅）以外 */
 const GENERAL_LOAN_LIMIT_MAN_YEN = 2000;
+/** 借入限度額（万円）。中古住宅で認定住宅等（省エネ性能等認定あり）の場合 */
 const ENERGY_EFFICIENT_LOAN_LIMIT_MAN_YEN = 3000;
-const GENERAL_DEDUCTION_PERIOD_YEARS = 10;
-const ENERGY_EFFICIENT_DEDUCTION_PERIOD_YEARS = 13;
+/** 控除期間（年）。中古住宅は認定の有無によらず一律10年（新築住宅向けの13年特例は中古住宅には適用されない） */
+const DEDUCTION_PERIOD_YEARS = 10;
 const DEDUCTION_RATE = 0.007;
 const NARROW_FLOOR_AREA_SQM = 40;
 const STANDARD_FLOOR_AREA_SQM = 50;
@@ -14,6 +16,16 @@ const OLD_HOME_STANDARD_YEAR = 1982;
 const PROPERTY_TAX_ASSESSED_VALUE_RATIO = 0.65;
 /** 固定資産税・都市計画税の標準税率（概算用） */
 const PROPERTY_TAX_STANDARD_RATE = 0.014;
+/** 年間維持費の概算に使う、延床面積あたりの基準単価（円/㎡） */
+const MAINTENANCE_COST_PER_SQM_YEN = 2000;
+/** 年間維持費の概算に使う構造係数（SRCはRCと同じ耐用年数区分のためRCと同値とする） */
+const MAINTENANCE_COST_STRUCTURE_FACTORS: Record<StructureType, number> = {
+  wood: 1.0,
+  steel: 1.15,
+  rc: 1.3,
+  src: 1.3,
+  other: 1.0,
+};
 
 // ---------------------------------------------------------------------------
 // 元利均等返済
@@ -77,6 +89,53 @@ export function calculateRemainingBalance(
   return Math.max(balance, 0);
 }
 
+export interface AmortizationYearPoint {
+  /** 返済1年目を1とする年次 */
+  year: number;
+  /** その年に返済した元金部分（円） */
+  principalPaid: number;
+  /** その年に返済した利息部分（円） */
+  interestPaid: number;
+  /** その年の返済額合計（円） */
+  totalPaid: number;
+  /** その年末時点の残高（円） */
+  endBalance: number;
+  /** 開始からその年末までの累計返済額（円） */
+  cumulativeRepayment: number;
+}
+
+/** 元利均等返済の年別内訳（元金・利息・年末残高・累計返済額）を1年ごとに生成する */
+export function generateAmortizationSchedule(
+  loanPrincipal: number,
+  annualRate: number,
+  termYears: number,
+): AmortizationYearPoint[] {
+  const totalMonths = Math.round(termYears * 12);
+  if (totalMonths <= 0 || loanPrincipal <= 0) return [];
+
+  const monthlyRate = annualRate / 100 / 12;
+  const { monthlyPayment } = calculateAmortizedLoan(loanPrincipal, annualRate, termYears);
+  const years = Math.ceil(totalMonths / 12);
+
+  const points: AmortizationYearPoint[] = [];
+  let cumulativeRepayment = 0;
+
+  for (let year = 1; year <= years; year++) {
+    const monthsElapsedStart = Math.min((year - 1) * 12, totalMonths);
+    const monthsElapsedEnd = Math.min(year * 12, totalMonths);
+    const startBalance = calculateRemainingBalance(loanPrincipal, monthlyRate, monthlyPayment, monthsElapsedStart);
+    const endBalance = calculateRemainingBalance(loanPrincipal, monthlyRate, monthlyPayment, monthsElapsedEnd);
+    const totalPaid = monthlyPayment * (monthsElapsedEnd - monthsElapsedStart);
+    const principalPaid = startBalance - endBalance;
+    const interestPaid = totalPaid - principalPaid;
+
+    cumulativeRepayment += totalPaid;
+    points.push({ year, principalPaid, interestPaid, totalPaid, endBalance, cumulativeRepayment });
+  }
+
+  return points;
+}
+
 // ---------------------------------------------------------------------------
 // 固定金利 vs 変動金利（簡易シミュレーション）
 // ---------------------------------------------------------------------------
@@ -90,6 +149,8 @@ export interface TwoPhaseLoanRepaymentResult {
   totalRepayment: number;
   /** 総利息（円） */
   totalInterest: number;
+  /** 金利が切り替わる時点（返済開始から何ヶ月経過時点か。ローンが存在しない場合は0） */
+  switchMonth: number;
 }
 
 /**
@@ -106,7 +167,13 @@ export function calculateTwoPhaseLoanRepayment(
   const totalMonths = Math.round(loanTermYears * 12);
 
   if (totalMonths <= 0 || loanPrincipal <= 0) {
-    return { monthlyPaymentBeforeSwitch: 0, monthlyPaymentAfterSwitch: 0, totalRepayment: 0, totalInterest: 0 };
+    return {
+      monthlyPaymentBeforeSwitch: 0,
+      monthlyPaymentAfterSwitch: 0,
+      totalRepayment: 0,
+      totalInterest: 0,
+      switchMonth: 0,
+    };
   }
 
   const monthsBeforeSwitch = Math.floor(totalMonths / 2);
@@ -131,7 +198,74 @@ export function calculateTwoPhaseLoanRepayment(
     monthlyPaymentAfterSwitch: afterSwitch.monthlyPayment,
     totalRepayment,
     totalInterest,
+    switchMonth: monthsBeforeSwitch,
   };
+}
+
+/**
+ * calculateTwoPhaseLoanRepaymentと同じ前提（返済期間の半分で金利が切り替わる）での年別内訳
+ * （元金・利息・年末残高・累計返済額）を1年ごとに生成する。
+ */
+export function generateTwoPhaseAmortizationSchedule(
+  loanPrincipal: number,
+  loanTermYears: number,
+  initialAnnualRate: number,
+  changedAnnualRate: number,
+): AmortizationYearPoint[] {
+  const totalMonths = Math.round(loanTermYears * 12);
+  if (totalMonths <= 0 || loanPrincipal <= 0) return [];
+
+  const monthsBeforeSwitch = Math.floor(totalMonths / 2);
+  const monthsAfterSwitch = totalMonths - monthsBeforeSwitch;
+
+  const beforeSwitch = calculateAmortizedLoan(loanPrincipal, initialAnnualRate, loanTermYears);
+  const monthlyRateBeforeSwitch = initialAnnualRate / 100 / 12;
+  const balanceAtSwitch = calculateRemainingBalance(
+    loanPrincipal,
+    monthlyRateBeforeSwitch,
+    beforeSwitch.monthlyPayment,
+    monthsBeforeSwitch,
+  );
+
+  const afterSwitch = calculateAmortizedLoan(balanceAtSwitch, changedAnnualRate, monthsAfterSwitch / 12);
+  const monthlyRateAfterSwitch = changedAnnualRate / 100 / 12;
+
+  const balanceAtMonth = (monthsElapsed: number): number => {
+    if (monthsElapsed <= monthsBeforeSwitch) {
+      return calculateRemainingBalance(loanPrincipal, monthlyRateBeforeSwitch, beforeSwitch.monthlyPayment, monthsElapsed);
+    }
+    return calculateRemainingBalance(
+      balanceAtSwitch,
+      monthlyRateAfterSwitch,
+      afterSwitch.monthlyPayment,
+      monthsElapsed - monthsBeforeSwitch,
+    );
+  };
+
+  const paymentBetween = (monthStart: number, monthEnd: number): number => {
+    const beforeMonths = Math.max(0, Math.min(monthEnd, monthsBeforeSwitch) - Math.min(monthStart, monthsBeforeSwitch));
+    const afterMonths = Math.max(0, monthEnd - Math.max(monthStart, monthsBeforeSwitch));
+    return beforeMonths * beforeSwitch.monthlyPayment + afterMonths * afterSwitch.monthlyPayment;
+  };
+
+  const years = Math.ceil(totalMonths / 12);
+  const points: AmortizationYearPoint[] = [];
+  let cumulativeRepayment = 0;
+
+  for (let year = 1; year <= years; year++) {
+    const monthsElapsedStart = Math.min((year - 1) * 12, totalMonths);
+    const monthsElapsedEnd = Math.min(year * 12, totalMonths);
+    const startBalance = balanceAtMonth(monthsElapsedStart);
+    const endBalance = balanceAtMonth(monthsElapsedEnd);
+    const totalPaid = paymentBetween(monthsElapsedStart, monthsElapsedEnd);
+    const principalPaid = startBalance - endBalance;
+    const interestPaid = totalPaid - principalPaid;
+
+    cumulativeRepayment += totalPaid;
+    points.push({ year, principalPaid, interestPaid, totalPaid, endBalance, cumulativeRepayment });
+  }
+
+  return points;
 }
 
 // ---------------------------------------------------------------------------
@@ -194,9 +328,8 @@ export function getMortgageDeductionEligibility(
     loanLimitManYen: property.hasEnergyEfficiencyCertificate
       ? ENERGY_EFFICIENT_LOAN_LIMIT_MAN_YEN
       : GENERAL_LOAN_LIMIT_MAN_YEN,
-    deductionPeriodYears: property.hasEnergyEfficiencyCertificate
-      ? ENERGY_EFFICIENT_DEDUCTION_PERIOD_YEARS
-      : GENERAL_DEDUCTION_PERIOD_YEARS,
+    // 中古住宅は認定住宅等かどうかによらず控除期間は一律10年（新築住宅向けの13年特例は対象外）
+    deductionPeriodYears: DEDUCTION_PERIOD_YEARS,
     reasons,
   };
 }
@@ -300,9 +433,28 @@ export function estimatePropertyTaxAnnual(property: Property): PropertyTaxEstima
   return { annualManYen: annualYen / 10000, isEstimated: true };
 }
 
-/** 年間維持費（万円）。未入力なら0として扱う（物件ごとの差が大きく、無理に概算しない） */
+/** 年間維持費の概算に使う築年数係数。0（未入力）は11〜20年と同じ1.0として扱う */
+function getMaintenanceCostBuildingAgeFactor(buildingAgeYears: number): number {
+  if (buildingAgeYears === 0) return 1.0;
+  if (buildingAgeYears <= 10) return 0.7;
+  if (buildingAgeYears <= 20) return 1.0;
+  if (buildingAgeYears <= 30) return 1.3;
+  return 1.6;
+}
+
+/**
+ * 年間維持費（万円）。
+ * 入力済みならその値を、未入力なら「延床面積（㎡） × 2,000円 × 構造係数 × 築年数係数」で概算する。
+ */
 export function getAnnualMaintenanceCostManYen(property: Property): number {
-  return property.annualMaintenanceCostManYen ?? 0;
+  if (property.annualMaintenanceCostManYen !== undefined) {
+    return property.annualMaintenanceCostManYen;
+  }
+
+  const structureFactor = MAINTENANCE_COST_STRUCTURE_FACTORS[property.structureType];
+  const buildingAgeFactor = getMaintenanceCostBuildingAgeFactor(property.buildingAgeYears);
+  const annualYen = property.floorAreaSqm * MAINTENANCE_COST_PER_SQM_YEN * structureFactor * buildingAgeFactor;
+  return annualYen / 10000;
 }
 
 export interface HoldingPeriodCosts {
@@ -315,19 +467,75 @@ export interface HoldingPeriodCosts {
 }
 
 /**
- * 固定資産税等・維持費の保有期間中の合計（年額 × 年数）。
- * 保有期間の目安として、返済期間（loanTermYears）の年数を用いる。
+ * 固定資産税等・維持費の保有期間中の合計。
+ * 保有期間の目安として返済期間（loanTermYears）の年数を用い、generateLifetimeExpenseTimelineの
+ * 年別内訳を合算する（維持費は築年数の経過に応じて年々係数が変わるため、単純な「年額 × 年数」ではなく
+ * 年別の実額を積み上げる。こうすることでライフタイム支出タイムラインの累計と必ず一致する）。
  */
 export function calculateHoldingPeriodCosts(property: Property): HoldingPeriodCosts {
   const propertyTax = estimatePropertyTaxAnnual(property);
-  const maintenanceAnnualManYen = getAnnualMaintenanceCostManYen(property);
-  const holdingYears = property.loanTermYears;
+  const timeline = generateLifetimeExpenseTimeline(property);
 
   return {
-    totalPropertyTaxYen: propertyTax.annualManYen * 10000 * holdingYears,
+    totalPropertyTaxYen: timeline.reduce((sum, point) => sum + point.propertyTaxYen, 0),
     isPropertyTaxEstimated: propertyTax.isEstimated,
-    totalMaintenanceCostYen: maintenanceAnnualManYen * 10000 * holdingYears,
+    totalMaintenanceCostYen: timeline.reduce((sum, point) => sum + point.maintenanceCostYen, 0),
   };
+}
+
+export interface LifetimeExpenseYearPoint {
+  /** 購入から何年目か（1年目〜） */
+  year: number;
+  /** その年の住宅ローン返済額（円） */
+  loanPaymentYen: number;
+  /** その年の固定資産税・都市計画税（円） */
+  propertyTaxYen: number;
+  /** その年の維持費（円） */
+  maintenanceCostYen: number;
+  /** その年に適用される維持費の築年数係数 */
+  maintenanceCostFactor: number;
+  /** 維持費が未入力のため、築年数係数を使って概算しているかどうか */
+  isMaintenanceCostEstimated: boolean;
+}
+
+/**
+ * 購入からの経過年数ごとの支出（住宅ローン返済額・固定資産税等・維持費）を、
+ * 保有期間の目安として返済期間（loanTermYears）分生成する。
+ * 維持費が未入力（概算）の場合、年を追うごとに築年数が進み、築年数係数の変化に応じて支出が変わる。
+ * 維持費が入力済みの場合は、その金額を毎年一定として扱う。
+ */
+export function generateLifetimeExpenseTimeline(property: Property): LifetimeExpenseYearPoint[] {
+  const loanSchedule = generateAmortizationSchedule(
+    getLoanPrincipal(property),
+    property.interestRateAnnual,
+    property.loanTermYears,
+  );
+  const propertyTaxYen = estimatePropertyTaxAnnual(property).annualManYen * 10000;
+  const structureFactor = MAINTENANCE_COST_STRUCTURE_FACTORS[property.structureType];
+  const isMaintenanceCostEstimated = property.annualMaintenanceCostManYen === undefined;
+  const fixedMaintenanceCostYen = (property.annualMaintenanceCostManYen ?? 0) * 10000;
+
+  const holdingYears = property.loanTermYears;
+  const points: LifetimeExpenseYearPoint[] = [];
+
+  for (let year = 1; year <= holdingYears; year++) {
+    const loanPaymentYen = loanSchedule[year - 1]?.totalPaid ?? 0;
+    const maintenanceCostFactor = getMaintenanceCostBuildingAgeFactor(property.buildingAgeYears + year - 1);
+    const maintenanceCostYen = isMaintenanceCostEstimated
+      ? property.floorAreaSqm * MAINTENANCE_COST_PER_SQM_YEN * structureFactor * maintenanceCostFactor
+      : fixedMaintenanceCostYen;
+
+    points.push({
+      year,
+      loanPaymentYen,
+      propertyTaxYen,
+      maintenanceCostYen,
+      maintenanceCostFactor,
+      isMaintenanceCostEstimated,
+    });
+  }
+
+  return points;
 }
 
 // ---------------------------------------------------------------------------

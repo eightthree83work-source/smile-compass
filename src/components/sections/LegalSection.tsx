@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { LegalAdvisorIcon } from "@/components/icons/AdvisorIcons";
+import { LegalAdvisorCharacterImage } from "@/components/icons/AdvisorCharacterImages";
 import { Property } from "@/lib/types";
 import { getLegalChecklist } from "@/lib/legalChecklist";
 
@@ -20,8 +20,8 @@ export default function LegalSection({ property }: LegalSectionProps) {
   return (
     <section className="mt-8 space-y-4">
       <div className="flex items-center gap-3">
-        <LegalAdvisorIcon className="h-14 w-14 shrink-0 text-ink/70" />
-        <h2 className="font-heading text-xl text-ink">宅建士の目</h2>
+        <LegalAdvisorCharacterImage className="h-14 w-14 shrink-0" />
+        <h2 className="font-heading text-xl text-ink">宅建士のサポート</h2>
       </div>
 
       <p className="rounded-md border border-ink/15 bg-ink/5 p-3 text-sm text-ink/65">

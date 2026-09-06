@@ -19,19 +19,19 @@ import {
 } from "@/lib/savedProperties";
 import { deleteImagesForProperty } from "@/lib/imageStorage";
 import {
-  FpAdvisorGlyphIcon,
-  InspectorGlyphIcon,
-  LegalAdvisorGlyphIcon,
-  RealtorGlyphIcon,
-} from "@/components/icons/AdvisorIcons";
+  FpAdvisorFaceIcon,
+  InspectorFaceIcon,
+  LegalAdvisorFaceIcon,
+  RealtorFaceIcon,
+} from "@/components/icons/AdvisorCharacterImages";
 
 type TabId = "valuation" | "legal" | "inspection" | "fp";
 
-const TABS: { id: TabId; label: string; Icon: typeof RealtorGlyphIcon }[] = [
-  { id: "valuation", label: "不動産屋", Icon: RealtorGlyphIcon },
-  { id: "legal", label: "宅建士", Icon: LegalAdvisorGlyphIcon },
-  { id: "inspection", label: "住宅診断士", Icon: InspectorGlyphIcon },
-  { id: "fp", label: "FP", Icon: FpAdvisorGlyphIcon },
+const TABS: { id: TabId; label: string; Icon: typeof RealtorFaceIcon }[] = [
+  { id: "valuation", label: "不動産屋", Icon: RealtorFaceIcon },
+  { id: "legal", label: "宅建士", Icon: LegalAdvisorFaceIcon },
+  { id: "inspection", label: "住宅診断士", Icon: InspectorFaceIcon },
+  { id: "fp", label: "FP", Icon: FpAdvisorFaceIcon },
 ];
 
 // 「現在編集中の物件」と「保存済み物件一覧」はlocalStorage内で別キーに分けて管理する
@@ -50,7 +50,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<TabId>("fp");
   const [isHydrated, setIsHydrated] = useState(false);
 
-  // 不動産屋の目タブの周辺相場は、診断サマリーカードでも使うためpage側で保持する
+  // 不動産プロのサポートタブの周辺相場は、診断サマリーカードでも使うためpage側で保持する
   const [marketPricePerTsuboManYen, setMarketPricePerTsuboManYen] = useState(0);
 
   // ページを開いた時（リロード時含む）、編集中データ・保存済み一覧をそれぞれ復元する
@@ -234,7 +234,7 @@ export default function Home() {
                 activeTab === tab.id ? "border-accent text-ink" : "border-transparent text-ink/45 active:text-ink/70"
               }`}
             >
-              <tab.Icon className={`h-7 w-7 ${activeTab === tab.id ? "text-accent" : "text-ink/40"}`} />
+              <tab.Icon className={`h-8 w-8 ${activeTab === tab.id ? "" : "opacity-60"}`} />
               {tab.label}
             </button>
           ))}

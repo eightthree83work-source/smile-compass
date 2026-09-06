@@ -3,9 +3,15 @@
 import { useState } from "react";
 import CurrencyInput from "@/components/CurrencyInput";
 import { INPUT_CLASS_NAME } from "@/components/PropertyForm";
-import { RealtorIcon } from "@/components/icons/AdvisorIcons";
+import { RealtorCharacterImage } from "@/components/icons/AdvisorCharacterImages";
+import { getRealtorChecklist } from "@/lib/realtorChecklist";
 import { Property } from "@/lib/types";
-import { VALUATION_JUDGMENT_LABELS, calculatePricePerTsuboManYen, judgeValuation } from "@/lib/valuation";
+import {
+  VALUATION_JUDGMENT_LABELS,
+  calculatePricePerTsuboManYen,
+  estimateBuildingPrice,
+  judgeValuation,
+} from "@/lib/valuation";
 
 interface ValuationSectionProps {
   property: Property;
@@ -33,6 +39,16 @@ function formatManYen(value: number): string {
   return `${manYenFormatter.format(value)}万円`;
 }
 
+const yenFormatter = new Intl.NumberFormat("ja-JP", {
+  style: "currency",
+  currency: "JPY",
+  maximumFractionDigits: 0,
+});
+
+function formatYen(value: number): string {
+  return yenFormatter.format(Math.round(value));
+}
+
 const JUDGMENT_STYLES: Record<string, string> = {
   undervalued: "border-[#0ca30c]/30 bg-[#0ca30c]/5 text-[#0b6b0b]",
   reasonable: "border-ink/15 bg-ink/5 text-ink/70",
@@ -49,12 +65,20 @@ export default function ValuationSection({
   const [isFetching, setIsFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [fetchResult, setFetchResult] = useState<AutoFetchResult | null>(null);
+  const [checkedIds, setCheckedIds] = useState<Record<string, boolean>>({});
 
   const pricePerTsubo = calculatePricePerTsuboManYen(property);
   const result =
     pricePerTsubo !== null && marketPricePerTsuboManYen > 0
       ? judgeValuation(pricePerTsubo, marketPricePerTsuboManYen)
       : null;
+
+  const checklist = getRealtorChecklist(property);
+  const toggleChecked = (id: string) => {
+    setCheckedIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const buildingPriceEstimate = estimateBuildingPrice(property, marketPricePerTsuboManYen);
 
   const trimmedLocation = property.location.trim();
 
@@ -88,8 +112,8 @@ export default function ValuationSection({
   return (
     <section className="mt-8 space-y-4">
       <div className="flex items-center gap-3">
-        <RealtorIcon className="h-14 w-14 shrink-0 text-ink/70" />
-        <h2 className="font-heading text-xl text-ink">不動産屋の目</h2>
+        <RealtorCharacterImage className="h-14 w-14 shrink-0" />
+        <h2 className="font-heading text-xl text-ink">不動産プロのサポート</h2>
       </div>
 
       <p className="rounded-md border border-ink/15 bg-ink/5 p-3 text-sm text-ink/65">
@@ -101,7 +125,7 @@ export default function ValuationSection({
           <div>
             <div className="text-sm text-ink/55">坪単価（自動計算）</div>
             <div className="mt-1 font-heading text-2xl text-ink">
-              {pricePerTsubo !== null ? formatManYen(pricePerTsubo) : "床面積を入力してください"}
+              {pricePerTsubo !== null ? formatManYen(pricePerTsubo) : "延床面積を入力してください"}
             </div>
           </div>
 
@@ -149,6 +173,83 @@ export default function ValuationSection({
             </span>
           </div>
         )}
+      </div>
+
+      <div>
+        <h3 className="font-heading text-lg text-ink">建物価格の目安を試算</h3>
+        <p className="mt-1 text-sm text-ink/55">
+          物件価格・敷地面積（坪）・周辺相場の坪単価から、土地値を除いた「試算上の建物価格」の目安を計算します。
+        </p>
+        <div className="mt-2 rounded-lg border border-ink/15 bg-white p-4">
+          {buildingPriceEstimate ? (
+            <>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <div className="text-sm text-ink/55">敷地の試算価格</div>
+                  <div className="mt-1 font-heading text-xl text-ink">
+                    {formatYen(buildingPriceEstimate.estimatedLandPriceYen)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-ink/55">試算上の建物価格</div>
+                  <div className="mt-1 font-heading text-xl text-ink">
+                    {formatYen(buildingPriceEstimate.estimatedBuildingPriceYen)}
+                  </div>
+                </div>
+              </div>
+              <div
+                className={`mt-3 rounded-md border px-3 py-2 text-sm ${
+                  buildingPriceEstimate.looksUndervalued
+                    ? "border-[#0ca30c]/30 bg-[#0ca30c]/5 text-[#0b6b0b]"
+                    : "border-ink/15 bg-ink/5 text-ink/70"
+                }`}
+              >
+                {buildingPriceEstimate.looksUndervalued
+                  ? "試算上の建物価格がプラスで大きめです。リフォーム済みで状態が良ければ割安感があります。"
+                  : "試算上の建物価格はマイナス、または小さめです。追加のリフォーム費用がかかる可能性があるため、価格交渉や他物件との比較を検討しましょう。"}
+                　あくまで簡易的な目安であり、断定的な診断ではありません。
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-ink/55">
+              物件価格・敷地面積（坪）・周辺相場の坪単価をすべて入力すると試算されます。
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <h3 className="font-heading text-lg text-ink">内覧・購入検討チェックリスト</h3>
+          <p className="mt-1 text-sm text-ink/55">
+            不動産のプロ目線で確認しておきたいポイントです。断定的な診断ではなく、内覧・商談時の確認漏れを防ぐための目安としてご利用ください。
+          </p>
+        </div>
+
+        {checklist.map((category) => (
+          <div key={category.id}>
+            <h4 className="font-heading text-base text-ink">{category.title}</h4>
+            <ul className="mt-2 space-y-3">
+              {category.items.map((item) => (
+                <li key={item.id} className="rounded-lg border border-ink/15 bg-white p-4">
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 rounded border-ink/25 text-accent focus:ring-accent"
+                      checked={Boolean(checkedIds[item.id])}
+                      onChange={() => toggleChecked(item.id)}
+                    />
+                    <span>
+                      <span className="block font-medium text-ink">{item.title}</span>
+                      <span className="mt-0.5 block text-sm text-ink/55">{item.description}</span>
+                      {item.note && <span className="mt-1 block text-sm text-ink/70">{item.note}</span>}
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </div>
     </section>
   );

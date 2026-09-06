@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { InspectorIcon } from "@/components/icons/AdvisorIcons";
+import { InspectorCharacterImage } from "@/components/icons/AdvisorCharacterImages";
 import { Property } from "@/lib/types";
 import { getInspectionChecklist } from "@/lib/inspectionChecklist";
 
@@ -20,8 +20,8 @@ export default function InspectionSection({ property }: InspectionSectionProps) 
   return (
     <section className="mt-8 space-y-4">
       <div className="flex items-center gap-3">
-        <InspectorIcon className="h-14 w-14 shrink-0 text-ink/70" />
-        <h2 className="font-heading text-xl text-ink">住宅診断士の目</h2>
+        <InspectorCharacterImage className="h-14 w-14 shrink-0" />
+        <h2 className="font-heading text-xl text-ink">住宅診断士のサポート</h2>
       </div>
 
       <p className="rounded-md border border-ink/15 bg-ink/5 p-3 text-sm text-ink/65">

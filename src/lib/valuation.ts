@@ -52,3 +52,43 @@ export function judgeValuation(
 
   return { pricePerTsuboManYen, diffPercent, judgment };
 }
+
+// ---------------------------------------------------------------------------
+// 建物価格の目安試算
+// ---------------------------------------------------------------------------
+
+/** 「試算上の建物価格」がこの金額（円）以上あれば、割安感がある目安として扱う */
+const BUILDING_PRICE_UNDERVALUED_THRESHOLD_YEN = 3_000_000;
+
+export interface BuildingPriceEstimate {
+  /** 試算上の建物価格（円）。物件価格 − 敷地の試算価格 */
+  estimatedBuildingPriceYen: number;
+  /** 敷地の試算価格（円）。敷地面積（坪） × 周辺相場の坪単価 */
+  estimatedLandPriceYen: number;
+  /** 試算上の建物価格が一定額以上あり、割安感の目安となるかどうか */
+  looksUndervalued: boolean;
+}
+
+/**
+ * 物件価格から、敷地面積・周辺相場の坪単価をもとに試算した敷地価格を差し引き、
+ * 「試算上の建物価格」を求める（土地値を除いた、建物にかかっているとみなせる価格の目安）。
+ * 試算上の建物価格 = 物件価格 −（敷地面積[坪] × 周辺相場の坪単価[万円→円]）
+ * 物件価格・敷地面積・周辺相場の坪単価のいずれかが未入力の場合はnullを返す。
+ */
+export function estimateBuildingPrice(
+  property: Property,
+  marketPricePerTsuboManYen: number,
+): BuildingPriceEstimate | null {
+  if (property.price <= 0 || !property.landAreaTsubo || property.landAreaTsubo <= 0 || marketPricePerTsuboManYen <= 0) {
+    return null;
+  }
+
+  const estimatedLandPriceYen = property.landAreaTsubo * marketPricePerTsuboManYen * 10000;
+  const estimatedBuildingPriceYen = property.price - estimatedLandPriceYen;
+
+  return {
+    estimatedBuildingPriceYen,
+    estimatedLandPriceYen,
+    looksUndervalued: estimatedBuildingPriceYen >= BUILDING_PRICE_UNDERVALUED_THRESHOLD_YEN,
+  };
+}

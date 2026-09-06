@@ -1,16 +1,35 @@
 "use client";
 
-import { useState } from "react";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { ReactNode, useState } from "react";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import CharacterTooltip from "@/components/CharacterTooltip";
 import CurrencyInput from "@/components/CurrencyInput";
 import { INPUT_CLASS_NAME } from "@/components/PropertyForm";
-import { FpAdvisorIcon } from "@/components/icons/AdvisorIcons";
+import { FpAdvisorCharacterImage, FpAdvisorFaceIcon } from "@/components/icons/AdvisorCharacterImages";
 import { Property } from "@/lib/types";
 import {
+  AmortizationYearPoint,
+  LifetimeExpenseYearPoint,
   calculateAmortizedLoan,
   calculateLifetimeCostEstimate,
   calculateLoanRepayment,
   calculateTwoPhaseLoanRepayment,
+  generateAmortizationSchedule,
+  generateLifetimeExpenseTimeline,
   getAcquisitionAndRegistrationTaxReduction,
   getLoanPrincipal,
   simulateMortgageDeduction,
@@ -33,6 +52,72 @@ function formatYen(value: number): string {
   return yenFormatter.format(Math.round(value));
 }
 
+function formatYearLabel(year: number): string {
+  return `${year}年目`;
+}
+
+function formatManYenAxisTick(value: number): string {
+  return `${Math.round(value / 10000).toLocaleString("ja-JP")}万`;
+}
+
+// グラフ共通のスタイル（既存の住宅ローン控除グラフの配色・トーンを踏襲）
+const CHART_GRID_COLOR = "#e1e0d9";
+const CHART_AXIS_LINE_COLOR = "#c3c2b7";
+const CHART_TICK_STYLE = { fill: "#898781", fontSize: 12 };
+const CHART_TOOLTIP_CONTENT_STYLE = {
+  background: "#fcfcfb",
+  border: "1px solid rgba(11,11,11,0.10)",
+  borderRadius: 6,
+  fontSize: 13,
+};
+const CHART_TOOLTIP_LABEL_STYLE = { color: "#0b0b0b", fontWeight: 500 };
+const CHART_TOOLTIP_ITEM_STYLE = { color: "#52514e" };
+const CHART_LEGEND_STYLE = { fontSize: 12, color: "#52514e" };
+
+// 系列ごとの色（ink #1A2420・accent #E8654A を基調に、中間トーンを2色追加）
+const PRINCIPAL_COLOR = "#e8654a"; // 元金（accent）
+const INTEREST_COLOR = "#c7c0b0"; // 利息（暖色寄りのニュートラルグレー）
+const BALANCE_LINE_COLOR = "#1a2420"; // 残債（ink）
+const LOAN_PAYMENT_COLOR = "#1a2420"; // 住宅ローン返済額（ink）
+const PROPERTY_TAX_COLOR = "#e8654a"; // 固定資産税等（accent）
+const MAINTENANCE_COST_COLOR = "#7c93a6"; // 年間維持費（ink・accentと区別できる青灰）
+const FIXED_RATE_LINE_COLOR = "#1a2420"; // 固定金利シナリオ（ink）
+const VARIABLE_RATE_LINE_COLOR = "#e8654a"; // 変動金利シナリオ（accent）
+
+const CUMULATIVE_CHART_CHARACTER_TEXT =
+  "この線が右肩上がりになるほど、住宅にかかる生涯コストが積み上がっていくよ。傾きが急に変わるところがあれば、それは金利の変更や維持費の増加が効いてきたタイミング。『実質負担額の目安』が、将来のご自身の収入やライフプランと比べて無理のない範囲か、家族で話し合う材料にしてみてね。";
+
+const MAINTENANCE_TREND_CHART_CHARACTER_TEXT =
+  "維持費は建物が古くなるほど増える傾向があるよ。グラフの縦線が引いてある年は、その増加が反映されるタイミング。このタイミングの少し前から修繕費用の積み立てを増やしておくと安心。固定資産税等は期間中大きな変化はしないけど、実際は建物の評価額が下がって軽減されるケースもあるから、あくまで概算として見てね。";
+
+function CurrencyTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { name?: string; value?: number; color?: string }[];
+  label?: string | number;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+
+  return (
+    <div style={CHART_TOOLTIP_CONTENT_STYLE} className="px-3 py-2">
+      <p style={CHART_TOOLTIP_LABEL_STYLE}>{formatYearLabel(Number(label))}</p>
+      <ul className="mt-1 space-y-0.5">
+        {payload.map((entry) => (
+          <li key={entry.name} style={CHART_TOOLTIP_ITEM_STYLE} className="flex items-center gap-1.5">
+            <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: entry.color }} />
+            <span>
+              {entry.name}：{formatYen(Number(entry.value))}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function StatTile({ label, value, badge }: { label: string; value: string; badge?: string }) {
   return (
     <div className="rounded-lg border border-ink/15 bg-white p-4">
@@ -52,7 +137,7 @@ function RateInput({
   onChange,
 }: {
   id: string;
-  label: string;
+  label: ReactNode;
   value: number;
   onChange: (value: number) => void;
 }) {
@@ -86,13 +171,344 @@ function EligibilityBadge({ eligible, label }: { eligible: boolean; label: strin
   );
 }
 
+const REPAYMENT_SCHEDULE_SYNC_ID = "repaymentSchedule";
+
+/**
+ * 返済シミュレーション：残債（ローン残高、数千万円規模）と年間返済額の内訳（数百万円規模）は桁が大きく異なるため、
+ * 同じ軸に重ねると内訳の棒グラフが潰れて見えなくなる。上段（残債の折れ線）と下段（元金・利息の積み上げ棒）に
+ * 分けて、それぞれ別スケールのy軸で表示する。syncIdでx軸の位置とツールチップ表示を連動させる。
+ */
+function RepaymentScheduleChart({
+  schedule,
+  loanPrincipal,
+}: {
+  schedule: AmortizationYearPoint[];
+  loanPrincipal: number;
+}) {
+  if (schedule.length === 0) return null;
+
+  return (
+    <div className="mt-4 space-y-1">
+      <div className="h-36 rounded-lg rounded-b-none border border-b-0 border-ink/15 bg-background p-4 pb-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={schedule} syncId={REPAYMENT_SCHEDULE_SYNC_ID} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+            <CartesianGrid vertical={false} stroke={CHART_GRID_COLOR} />
+            <XAxis dataKey="year" hide />
+            <YAxis
+              domain={[0, Math.max(loanPrincipal, 1)]}
+              tickFormatter={formatManYenAxisTick}
+              tick={CHART_TICK_STYLE}
+              axisLine={false}
+              tickLine={false}
+              width={56}
+            />
+            <Tooltip content={<CurrencyTooltip />} />
+            <Line type="monotone" dataKey="endBalance" name="残債" stroke={BALANCE_LINE_COLOR} strokeWidth={2} dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="px-4 text-xs text-ink/45">↑ 残債（ローン残高）　↓ 年間返済額の内訳（元金・利息）</p>
+      <div className="h-44 rounded-lg rounded-t-none border border-t-0 border-ink/15 bg-background p-4 pt-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={schedule}
+            syncId={REPAYMENT_SCHEDULE_SYNC_ID}
+            barCategoryGap="20%"
+            margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid vertical={false} stroke={CHART_GRID_COLOR} />
+            <XAxis
+              dataKey="year"
+              tickFormatter={formatYearLabel}
+              tick={CHART_TICK_STYLE}
+              axisLine={{ stroke: CHART_AXIS_LINE_COLOR }}
+              tickLine={false}
+            />
+            <YAxis
+              domain={[0, "dataMax"]}
+              tickFormatter={formatManYenAxisTick}
+              tick={CHART_TICK_STYLE}
+              axisLine={false}
+              tickLine={false}
+              width={56}
+            />
+            <Tooltip cursor={{ fill: CHART_GRID_COLOR, opacity: 0.4 }} content={<CurrencyTooltip />} />
+            <Legend wrapperStyle={CHART_LEGEND_STYLE} />
+            <Bar dataKey="principalPaid" name="元金" stackId="repayment" fill={PRINCIPAL_COLOR} maxBarSize={20} />
+            <Bar
+              dataKey="interestPaid"
+              name="利息"
+              stackId="repayment"
+              fill={INTEREST_COLOR}
+              radius={[3, 3, 0, 0]}
+              maxBarSize={20}
+            />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+interface CumulativeLifetimeCostPoint {
+  year: number;
+  cumulativeLoanPayment: number;
+  cumulativePropertyTax: number;
+  cumulativeMaintenanceCost: number;
+}
+
+/**
+ * 生涯コストの累計：住宅ローン返済額・固定資産税等・維持費それぞれの累計額を積み上げエリアチャートで表示する。
+ * 年ごとの合計だと返済額の大きさに他の2項目が埋もれてしまうため、右肩上がりの積み上がりを見せる形に変更した。
+ * 最終年の到達点は、calculateHoldingPeriodCosts / calculateLifetimeCostEstimateの合計と一致する
+ * （どちらもgenerateLifetimeExpenseTimelineの年別内訳を合算しているため）。
+ */
+function CumulativeLifetimeCostChart({ data }: { data: CumulativeLifetimeCostPoint[] }) {
+  if (data.length === 0) return null;
+
+  return (
+    <div className="mt-4 h-72 rounded-lg border border-ink/15 bg-background p-4">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid vertical={false} stroke={CHART_GRID_COLOR} />
+          <XAxis
+            dataKey="year"
+            tickFormatter={formatYearLabel}
+            tick={CHART_TICK_STYLE}
+            axisLine={{ stroke: CHART_AXIS_LINE_COLOR }}
+            tickLine={false}
+          />
+          <YAxis
+            tickFormatter={formatManYenAxisTick}
+            tick={CHART_TICK_STYLE}
+            axisLine={false}
+            tickLine={false}
+            width={56}
+          />
+          <Tooltip content={<CurrencyTooltip />} />
+          <Legend wrapperStyle={CHART_LEGEND_STYLE} />
+          <Area
+            type="monotone"
+            dataKey="cumulativeLoanPayment"
+            name="住宅ローン返済額（累計）"
+            stackId="cumulative"
+            stroke={LOAN_PAYMENT_COLOR}
+            fill={LOAN_PAYMENT_COLOR}
+            fillOpacity={0.85}
+          />
+          <Area
+            type="monotone"
+            dataKey="cumulativePropertyTax"
+            name="固定資産税等（累計）"
+            stackId="cumulative"
+            stroke={PROPERTY_TAX_COLOR}
+            fill={PROPERTY_TAX_COLOR}
+            fillOpacity={0.85}
+          />
+          <Area
+            type="monotone"
+            dataKey="cumulativeMaintenanceCost"
+            name="維持費（累計）"
+            stackId="cumulative"
+            stroke={MAINTENANCE_COST_COLOR}
+            fill={MAINTENANCE_COST_COLOR}
+            fillOpacity={0.85}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+interface MaintenanceCostFactorTransition {
+  year: number;
+  buildingAgeYears: number;
+  fromFactor: number;
+  toFactor: number;
+}
+
+/** 維持費の築年数係数が前年から変化するタイミング（年）を抽出する */
+function getMaintenanceCostFactorTransitions(
+  timeline: LifetimeExpenseYearPoint[],
+  buildingAgeYears: number,
+): MaintenanceCostFactorTransition[] {
+  const transitions: MaintenanceCostFactorTransition[] = [];
+
+  for (let i = 1; i < timeline.length; i++) {
+    const previous = timeline[i - 1];
+    const current = timeline[i];
+    if (current.isMaintenanceCostEstimated && current.maintenanceCostFactor !== previous.maintenanceCostFactor) {
+      transitions.push({
+        year: current.year,
+        buildingAgeYears: buildingAgeYears + current.year - 1,
+        fromFactor: previous.maintenanceCostFactor,
+        toFactor: current.maintenanceCostFactor,
+      });
+    }
+  }
+
+  return transitions;
+}
+
+/**
+ * 固定資産税等・維持費の推移：固定資産税等はestimatePropertyTaxAnnualの結果を毎年そのまま使っており
+ * 期間中変化しないため、グラフでは年々変化する維持費のみを表示し、固定資産税等は別途テキストで注記する。
+ * 維持費の築年数係数が変わる年には、金利変更時と同じ「縦の点線＋注記ラベル」で示す。
+ */
+function MaintenanceCostTrendChart({
+  timeline,
+  buildingAgeYears,
+}: {
+  timeline: LifetimeExpenseYearPoint[];
+  buildingAgeYears: number;
+}) {
+  if (timeline.length === 0) return null;
+
+  const transitions = getMaintenanceCostFactorTransitions(timeline, buildingAgeYears);
+
+  return (
+    <div className="mt-4 h-64 rounded-lg border border-ink/15 bg-background p-4">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={timeline} barCategoryGap="20%" margin={{ top: 24, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid vertical={false} stroke={CHART_GRID_COLOR} />
+          <XAxis
+            dataKey="year"
+            type="number"
+            domain={[1, "dataMax"]}
+            allowDecimals={false}
+            tickFormatter={formatYearLabel}
+            tick={CHART_TICK_STYLE}
+            axisLine={{ stroke: CHART_AXIS_LINE_COLOR }}
+            tickLine={false}
+          />
+          <YAxis
+            domain={[0, "dataMax"]}
+            tickFormatter={formatManYenAxisTick}
+            tick={CHART_TICK_STYLE}
+            axisLine={false}
+            tickLine={false}
+            width={56}
+          />
+          <Tooltip cursor={{ fill: CHART_GRID_COLOR, opacity: 0.4 }} content={<CurrencyTooltip />} />
+          {transitions.map((transition) => (
+            <ReferenceLine
+              key={transition.year}
+              x={transition.year - 0.5}
+              stroke={CHART_AXIS_LINE_COLOR}
+              strokeDasharray="4 4"
+              label={{
+                value: `築${transition.buildingAgeYears}年経過で維持費係数が上昇（${transition.fromFactor}→${transition.toFactor}倍）`,
+                position: "insideTopLeft",
+                fontSize: 11,
+                fill: "#52514e",
+              }}
+            />
+          ))}
+          <Bar dataKey="maintenanceCostYen" name="年間維持費" fill={MAINTENANCE_COST_COLOR} radius={[3, 3, 0, 0]} maxBarSize={20} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+interface RateComparisonPoint {
+  year: number;
+  fixedPayment: number;
+  variablePayment: number;
+}
+
+/**
+ * 固定金利 vs 変動金利：年間返済額そのものの推移を階段状の折れ線で比較する。
+ * 累計返済額だと大きな数字に金利変化の影響が埋もれてしまうため、年間返済額に絞って表示する。
+ */
+function RateComparisonChart({
+  data,
+  switchYear,
+  switchLabel,
+}: {
+  data: RateComparisonPoint[];
+  switchYear: number | null;
+  switchLabel: string;
+}) {
+  if (data.length === 0) return null;
+
+  return (
+    <div className="mt-4 h-72 rounded-lg border border-ink/15 bg-background p-4">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 20, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid vertical={false} stroke={CHART_GRID_COLOR} />
+          <XAxis
+            dataKey="year"
+            type="number"
+            domain={[1, "dataMax"]}
+            allowDecimals={false}
+            tickFormatter={formatYearLabel}
+            tick={CHART_TICK_STYLE}
+            axisLine={{ stroke: CHART_AXIS_LINE_COLOR }}
+            tickLine={false}
+          />
+          <YAxis
+            domain={[0, "dataMax"]}
+            tickFormatter={formatManYenAxisTick}
+            tick={CHART_TICK_STYLE}
+            axisLine={false}
+            tickLine={false}
+            width={56}
+          />
+          <Tooltip content={<CurrencyTooltip />} />
+          <Legend wrapperStyle={CHART_LEGEND_STYLE} />
+          {switchYear !== null && (
+            <ReferenceLine
+              x={switchYear + 0.5}
+              stroke={CHART_AXIS_LINE_COLOR}
+              strokeDasharray="4 4"
+              label={{ value: switchLabel, position: "insideTopLeft", fontSize: 11, fill: "#52514e" }}
+            />
+          )}
+          <Line
+            type="stepAfter"
+            dataKey="fixedPayment"
+            name="固定金利シナリオ（年間返済額）"
+            stroke={FIXED_RATE_LINE_COLOR}
+            strokeWidth={2}
+            dot={false}
+          />
+          <Line
+            type="stepAfter"
+            dataKey="variablePayment"
+            name="変動金利シナリオ（年間返済額）"
+            stroke={VARIABLE_RATE_LINE_COLOR}
+            strokeWidth={2}
+            dot={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 export default function FpSection({ property }: FpSectionProps) {
+  const loanPrincipal = getLoanPrincipal(property);
   const repayment = calculateLoanRepayment(property);
+  const repaymentSchedule = generateAmortizationSchedule(loanPrincipal, property.interestRateAnnual, property.loanTermYears);
   const deduction = simulateMortgageDeduction(property);
   const taxReduction = getAcquisitionAndRegistrationTaxReduction(property);
   const lifetimeCost = calculateLifetimeCostEstimate(property);
+  const lifetimeExpenseTimeline = generateLifetimeExpenseTimeline(property);
 
-  const chartData = deduction.years.map((y) => ({ year: y.year, deductionAmount: y.deductionAmount }));
+  // 生涯コストの累計グラフ用：年ごとの支出を積み上げていく
+  const cumulativeLifetimeCostData = lifetimeExpenseTimeline.reduce<CumulativeLifetimeCostPoint[]>((acc, point) => {
+    const previous = acc[acc.length - 1];
+    acc.push({
+      year: point.year,
+      cumulativeLoanPayment: (previous?.cumulativeLoanPayment ?? 0) + point.loanPaymentYen,
+      cumulativePropertyTax: (previous?.cumulativePropertyTax ?? 0) + point.propertyTaxYen,
+      cumulativeMaintenanceCost: (previous?.cumulativeMaintenanceCost ?? 0) + point.maintenanceCostYen,
+    });
+    return acc;
+  }, []);
+  // 固定資産税等は年によらず一定額のため、代表値としてそのまま表示する
+  const propertyTaxAnnualYen = lifetimeExpenseTimeline[0]?.propertyTaxYen ?? 0;
 
   const trimmedLocation = property.location.trim();
   const localSubsidySearchUrl = trimmedLocation
@@ -104,7 +520,6 @@ export default function FpSection({ property }: FpSectionProps) {
   const [variableRateAnnual, setVariableRateAnnual] = useState(() => property.interestRateAnnual);
   const [futureRateAnnual, setFutureRateAnnual] = useState(() => property.interestRateAnnual + 1);
 
-  const loanPrincipal = getLoanPrincipal(property);
   const fixedScenario = calculateAmortizedLoan(loanPrincipal, fixedRateAnnual, property.loanTermYears);
   const variableStableScenario = calculateAmortizedLoan(loanPrincipal, variableRateAnnual, property.loanTermYears);
   const variableRisingScenario = calculateTwoPhaseLoanRepayment(
@@ -113,6 +528,28 @@ export default function FpSection({ property }: FpSectionProps) {
     variableRateAnnual,
     futureRateAnnual,
   );
+
+  // 固定金利 vs 変動金利グラフ用：年間返済額そのものの階段状の推移データ
+  const totalLoanMonths = Math.round(property.loanTermYears * 12);
+  const totalLoanYears = Math.ceil(totalLoanMonths / 12);
+  const switchYear = variableRisingScenario.switchMonth > 0 ? Math.round(variableRisingScenario.switchMonth / 12) : null;
+  const fixedAnnualPayment = fixedScenario.monthlyPayment * 12;
+  const variableAnnualPaymentBeforeSwitch = variableRisingScenario.monthlyPaymentBeforeSwitch * 12;
+  const variableAnnualPaymentAfterSwitch = variableRisingScenario.monthlyPaymentAfterSwitch * 12;
+
+  const rateComparisonData =
+    totalLoanMonths > 0 && loanPrincipal > 0
+      ? Array.from({ length: totalLoanYears }, (_, index) => {
+          const year = index + 1;
+          return {
+            year,
+            fixedPayment: fixedAnnualPayment,
+            variablePayment:
+              switchYear !== null && year > switchYear ? variableAnnualPaymentAfterSwitch : variableAnnualPaymentBeforeSwitch,
+          };
+        })
+      : [];
+  const rateSwitchLabel = `${(switchYear ?? 0) + 1}年目に金利上昇（年率${variableRateAnnual}%→${futureRateAnnual}%）`;
 
   const rateScenarios = [
     {
@@ -147,8 +584,8 @@ export default function FpSection({ property }: FpSectionProps) {
   return (
     <section className="mt-8 space-y-8">
       <div className="flex items-center gap-3">
-        <FpAdvisorIcon className="h-14 w-14 shrink-0 text-ink/70" />
-        <h2 className="font-heading text-xl text-ink">FPの目</h2>
+        <FpAdvisorCharacterImage className="h-14 w-14 shrink-0" />
+        <h2 className="font-heading text-xl text-ink">FPのサポート</h2>
       </div>
 
       <div>
@@ -158,6 +595,10 @@ export default function FpSection({ property }: FpSectionProps) {
           <StatTile label="総返済額" value={formatYen(repayment.totalRepayment)} />
           <StatTile label="総利息" value={formatYen(repayment.totalInterest)} />
         </div>
+        <p className="mt-4 text-sm text-ink/55">
+          返済シミュレーション：上段が残債（ローン残高）の推移、下段が年ごとの返済額を元金・利息に分けた内訳です。桁が大きく異なるため軸を分けて表示しています。
+        </p>
+        <RepaymentScheduleChart schedule={repaymentSchedule} loanPrincipal={loanPrincipal} />
       </div>
 
       <div>
@@ -169,19 +610,37 @@ export default function FpSection({ property }: FpSectionProps) {
         <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <RateInput
             id="fixedRateAnnual"
-            label="固定金利シナリオ（年率 %）"
+            label={
+              <>
+                固定金利シナリオ
+                <br />
+                （年率 %）
+              </>
+            }
             value={fixedRateAnnual}
             onChange={setFixedRateAnnual}
           />
           <RateInput
             id="variableRateAnnual"
-            label="変動金利シナリオ（当初年率 %）"
+            label={
+              <>
+                変動金利シナリオ
+                <br />
+                （当初年率 %）
+              </>
+            }
             value={variableRateAnnual}
             onChange={setVariableRateAnnual}
           />
           <RateInput
             id="futureRateAnnual"
-            label="変動金利が将来上昇した場合の想定（年率 %）"
+            label={
+              <>
+                変動金利が将来上昇した場合の想定
+                <br />
+                （年率 %）
+              </>
+            }
             value={futureRateAnnual}
             onChange={setFutureRateAnnual}
           />
@@ -218,6 +677,11 @@ export default function FpSection({ property }: FpSectionProps) {
             </tbody>
           </table>
         </div>
+
+        <p className="mt-4 text-sm text-ink/55">
+          年間返済額の推移：固定金利シナリオと変動金利シナリオ（将来上昇）を比較しています。金利が切り替わるタイミングで返済額がどれだけ変わるかがわかります。
+        </p>
+        <RateComparisonChart data={rateComparisonData} switchYear={switchYear} switchLabel={rateSwitchLabel} />
       </div>
 
       <div>
@@ -238,43 +702,9 @@ export default function FpSection({ property }: FpSectionProps) {
               借入限度額 {deduction.eligibility.loanLimitManYen.toLocaleString("ja-JP")}万円・控除期間{" "}
               {deduction.eligibility.deductionPeriodYears}年
             </p>
-            <div className="mt-3 h-72 rounded-lg border border-ink/15 bg-background p-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} barCategoryGap="20%">
-                  <CartesianGrid vertical={false} stroke="#e1e0d9" />
-                  <XAxis
-                    dataKey="year"
-                    tickFormatter={(year) => `${year}年目`}
-                    tick={{ fill: "#898781", fontSize: 12 }}
-                    axisLine={{ stroke: "#c3c2b7" }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tickFormatter={(value) => `${Math.round(Number(value) / 10000).toLocaleString("ja-JP")}万`}
-                    tick={{ fill: "#898781", fontSize: 12 }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={56}
-                  />
-                  <Tooltip
-                    cursor={{ fill: "#e1e0d9", opacity: 0.4 }}
-                    contentStyle={{
-                      background: "#fcfcfb",
-                      border: "1px solid rgba(11,11,11,0.10)",
-                      borderRadius: 6,
-                      fontSize: 13,
-                    }}
-                    labelStyle={{ color: "#0b0b0b", fontWeight: 500 }}
-                    itemStyle={{ color: "#52514e" }}
-                    formatter={(value) => [formatYen(Number(value)), "控除額"]}
-                    labelFormatter={(label) => `${label}年目`}
-                  />
-                  <Bar dataKey="deductionAmount" fill="#2a78d6" radius={[4, 4, 0, 0]} maxBarSize={24} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
             <p className="mt-2 text-sm text-ink/55">
               控除額合計：<span className="font-medium text-ink">{formatYen(deduction.totalDeduction)}</span>
+              　（年末残高が借入限度額を上回っている間は控除額が一定になります。年ごとの残高の推移は上の「返済計画」グラフをご参照ください）
             </p>
           </>
         )}
@@ -329,7 +759,11 @@ export default function FpSection({ property }: FpSectionProps) {
         </p>
         <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <StatTile label="総返済額" value={formatYen(lifetimeCost.totalRepayment)} />
-          <StatTile label="住宅ローン控除 合計" value={`-${formatYen(lifetimeCost.totalMortgageDeduction)}`} />
+          <StatTile
+            label="住宅ローン控除 合計"
+            value={`-${formatYen(lifetimeCost.totalMortgageDeduction)}`}
+            badge={!deduction.eligibility.eligible ? "対象外" : undefined}
+          />
           <StatTile
             label="固定資産税等 合計"
             value={formatYen(lifetimeCost.totalPropertyTax)}
@@ -338,6 +772,39 @@ export default function FpSection({ property }: FpSectionProps) {
           <StatTile label="維持費 合計" value={formatYen(lifetimeCost.totalMaintenanceCost)} />
           <StatTile label="実質負担額の目安" value={formatYen(lifetimeCost.netLifetimeCost)} />
         </div>
+
+        {!deduction.eligibility.eligible && (
+          <p className="mt-2 text-xs text-[#a12f2f]">
+            住宅ローン控除：{deduction.eligibility.reasons.join(" / ")}のため対象外として計算しています。
+          </p>
+        )}
+        <p className="mt-1 text-xs text-ink/40">
+          住宅ローン控除は令和7年度の現行制度（借入限度額2,000万円／認定住宅等3,000万円、控除率0.7%、控除期間10年）で計算しています。今後の税制改正により条件が変わる可能性があります。
+        </p>
+
+        <div className="mt-4 flex items-start gap-2">
+          <CharacterTooltip
+            icon={<FpAdvisorFaceIcon className="h-6 w-6" />}
+            text={CUMULATIVE_CHART_CHARACTER_TEXT}
+            label="リスが生涯コストの累計グラフを解説"
+          />
+          <p className="text-sm text-ink/55">
+            生涯コストの累計：住宅ローン返済額・固定資産税等・維持費それぞれの累計額です。最終年の到達点は上のカードの合計と一致します。
+          </p>
+        </div>
+        <CumulativeLifetimeCostChart data={cumulativeLifetimeCostData} />
+
+        <div className="mt-4 flex items-start gap-2">
+          <CharacterTooltip
+            icon={<FpAdvisorFaceIcon className="h-6 w-6" />}
+            text={MAINTENANCE_TREND_CHART_CHARACTER_TEXT}
+            label="リスが固定資産税等・維持費の推移グラフを解説"
+          />
+          <p className="text-sm text-ink/55">
+            固定資産税等・維持費の推移：固定資産税等は期間中ほぼ一定（約{formatYen(propertyTaxAnnualYen)}/年）のため、ここでは年々変化する維持費の推移に絞って表示しています。縦の点線は、築年数の経過により維持費の概算係数が上がるタイミングです。
+          </p>
+        </div>
+        <MaintenanceCostTrendChart timeline={lifetimeExpenseTimeline} buildingAgeYears={property.buildingAgeYears} />
       </div>
     </section>
   );
