@@ -20,19 +20,22 @@ import CharacterTooltip from "@/components/CharacterTooltip";
 import CurrencyInput from "@/components/CurrencyInput";
 import { INPUT_CLASS_NAME } from "@/components/PropertyForm";
 import { FpAdvisorCharacterImage, FpAdvisorFaceIcon } from "@/components/icons/AdvisorCharacterImages";
+import { generateId } from "@/lib/id";
 import { Property } from "@/lib/types";
 import {
   AmortizationYearPoint,
   LifetimeExpenseYearPoint,
+  RateChangeEvent,
   calculateAmortizedLoan,
   calculateLifetimeCostEstimate,
   calculateLoanRepayment,
-  calculateTwoPhaseLoanRepayment,
   generateAmortizationSchedule,
   generateLifetimeExpenseTimeline,
+  generateMultiPhaseAmortizationSchedule,
   getAcquisitionAndRegistrationTaxReduction,
   getLoanPrincipal,
   simulateMortgageDeduction,
+  summarizeMultiPhaseLoan,
 } from "@/lib/calculations";
 
 interface FpSectionProps {
@@ -41,6 +44,10 @@ interface FpSectionProps {
 
 const MLIT_HOUSING_SUPPORT_SEARCH_URL =
   "https://www.mlit.go.jp/jutakukentiku/house/jutakukentiku_house_tk3_000055.html";
+
+// 詳細設定モードの行内で使う小さめの入力欄用（INPUT_CLASS_NAMEのw-fullを持ち込むと横並びで幅の指定が効かないため専用に用意する）
+const COMPACT_INPUT_CLASS_NAME =
+  "block w-24 rounded-md border border-ink/20 px-3 py-2 shadow-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent";
 
 const yenFormatter = new Intl.NumberFormat("ja-JP", {
   style: "currency",
@@ -89,6 +96,42 @@ const CUMULATIVE_CHART_CHARACTER_TEXT =
 
 const MAINTENANCE_TREND_CHART_CHARACTER_TEXT =
   "維持費は建物が古くなるほど増える傾向があるよ。グラフの縦線が引いてある年は、その増加が反映されるタイミング。このタイミングの少し前から修繕費用の積み立てを増やしておくと安心。固定資産税等は期間中大きな変化はしないけど、実際は建物の評価額が下がって軽減されるケースもあるから、あくまで概算として見てね。";
+
+// ---------------------------------------------------------------------------
+// 変動金利：多段階の上昇シナリオ（簡単入力／詳細設定で共通のデータ形）
+// ---------------------------------------------------------------------------
+
+interface RateIncreaseStep {
+  id: string;
+  /** 借入から何年後にこの上昇が起きるか */
+  afterYears: number;
+  /** この回の上昇幅（%、前の金利からの差分） */
+  rateChangePercent: number;
+}
+
+/** 「上昇幅・間隔・回数」から、間隔ごとに一定幅で上昇するステップ列を生成する（簡単入力モード用） */
+function generateStepsFromSimpleInputs(amount: number, intervalYears: number, count: number): RateIncreaseStep[] {
+  if (intervalYears <= 0 || count <= 0) return [];
+  return Array.from({ length: count }, (_, index) => ({
+    id: `simple-${index}`,
+    afterYears: intervalYears * (index + 1),
+    rateChangePercent: amount,
+  }));
+}
+
+/** ステップ列（上昇幅の差分）を、計算エンジンが受け取る絶対金利のイベント列に変換する */
+function buildRateChangeEvents(initialRateAnnual: number, steps: RateIncreaseStep[]): RateChangeEvent[] {
+  const sorted = [...steps].sort((a, b) => a.afterYears - b.afterYears);
+  let cumulativeRate = initialRateAnnual;
+  return sorted.map((step) => {
+    cumulativeRate += step.rateChangePercent;
+    return { afterYears: step.afterYears, newRateAnnual: cumulativeRate };
+  });
+}
+
+function formatRateChangePercent(value: number): string {
+  return `${value >= 0 ? "+" : ""}${value}%`;
+}
 
 function CurrencyTooltip({
   active,
@@ -417,19 +460,20 @@ interface RateComparisonPoint {
   variablePayment: number;
 }
 
+interface RateSwitchMarker {
+  /** 変更前の最終年（この年とその次の年の間に縦線を引く） */
+  year: number;
+  label: string;
+  position: "insideTopLeft" | "insideBottomLeft";
+}
+
 /**
  * 固定金利 vs 変動金利：年間返済額そのものの推移を階段状の折れ線で比較する。
  * 累計返済額だと大きな数字に金利変化の影響が埋もれてしまうため、年間返済額に絞って表示する。
+ * 金利変更が複数回ある場合、縦線ごとに1つずつコンパクトなラベルを表示し、
+ * 上下交互の位置にすることでラベルの重なりを軽減している。
  */
-function RateComparisonChart({
-  data,
-  switchYear,
-  switchLabel,
-}: {
-  data: RateComparisonPoint[];
-  switchYear: number | null;
-  switchLabel: string;
-}) {
+function RateComparisonChart({ data, switchMarkers }: { data: RateComparisonPoint[]; switchMarkers: RateSwitchMarker[] }) {
   if (data.length === 0) return null;
 
   return (
@@ -457,14 +501,15 @@ function RateComparisonChart({
           />
           <Tooltip content={<CurrencyTooltip />} />
           <Legend wrapperStyle={CHART_LEGEND_STYLE} />
-          {switchYear !== null && (
+          {switchMarkers.map((marker) => (
             <ReferenceLine
-              x={switchYear + 0.5}
+              key={marker.year}
+              x={marker.year + 0.5}
               stroke={CHART_AXIS_LINE_COLOR}
               strokeDasharray="4 4"
-              label={{ value: switchLabel, position: "insideTopLeft", fontSize: 11, fill: "#52514e" }}
+              label={{ value: marker.label, position: marker.position, fontSize: 11, fill: "#52514e" }}
             />
-          )}
+          ))}
           <Line
             type="stepAfter"
             dataKey="fixedPayment"
@@ -518,38 +563,82 @@ export default function FpSection({ property }: FpSectionProps) {
   // 固定金利 vs 変動金利の比較用。初期値のみPropertyの現在の金利をコピーし、以降は独立して編集できる
   const [fixedRateAnnual, setFixedRateAnnual] = useState(() => property.interestRateAnnual);
   const [variableRateAnnual, setVariableRateAnnual] = useState(() => property.interestRateAnnual);
-  const [futureRateAnnual, setFutureRateAnnual] = useState(() => property.interestRateAnnual + 1);
+
+  // 変動金利の上昇シナリオ：簡単入力モード（上昇幅・間隔・回数）と詳細設定モード（行の自由編集）を切り替えられる
+  const [useDetailedRateSteps, setUseDetailedRateSteps] = useState(false);
+  const [rateIncreaseAmount, setRateIncreaseAmount] = useState(0.25);
+  const [rateIncreaseIntervalYears, setRateIncreaseIntervalYears] = useState(5);
+  const [rateIncreaseCount, setRateIncreaseCount] = useState(4);
+  const [detailedRateSteps, setDetailedRateSteps] = useState<RateIncreaseStep[]>([]);
+
+  const simpleModeSteps = generateStepsFromSimpleInputs(rateIncreaseAmount, rateIncreaseIntervalYears, rateIncreaseCount);
+  const activeRateSteps = useDetailedRateSteps ? detailedRateSteps : simpleModeSteps;
+
+  const handleToggleDetailedRateSteps = (checked: boolean) => {
+    if (checked && detailedRateSteps.length === 0) {
+      setDetailedRateSteps(
+        simpleModeSteps.length > 0 ? simpleModeSteps : [{ id: generateId(), afterYears: 5, rateChangePercent: 0.25 }],
+      );
+    }
+    setUseDetailedRateSteps(checked);
+  };
+
+  const handleAddDetailedRateStep = () => {
+    setDetailedRateSteps((prev) => [
+      ...prev,
+      { id: generateId(), afterYears: (prev[prev.length - 1]?.afterYears ?? 0) + 5, rateChangePercent: 0.25 },
+    ]);
+  };
+
+  const handleUpdateDetailedRateStep = (id: string, patch: Partial<Pick<RateIncreaseStep, "afterYears" | "rateChangePercent">>) => {
+    setDetailedRateSteps((prev) => prev.map((step) => (step.id === id ? { ...step, ...patch } : step)));
+  };
+
+  const handleRemoveDetailedRateStep = (id: string) => {
+    setDetailedRateSteps((prev) => prev.filter((step) => step.id !== id));
+  };
+
+  const totalLoanMonths = Math.round(property.loanTermYears * 12);
+  const stepsWithinTerm = activeRateSteps.filter(
+    (step) => step.afterYears > 0 && step.afterYears * 12 < totalLoanMonths,
+  );
+  const droppedStepCount = activeRateSteps.length - stepsWithinTerm.length;
+
+  const rateChangeEvents = buildRateChangeEvents(variableRateAnnual, activeRateSteps);
+  // 各ステップの上昇幅は前の金利からの差分の積み上げなので、累積後の絶対金利（rateChangeEvents）で判定する
+  const hasNegativeRateWarning = variableRateAnnual < 0 || rateChangeEvents.some((event) => event.newRateAnnual < 0);
 
   const fixedScenario = calculateAmortizedLoan(loanPrincipal, fixedRateAnnual, property.loanTermYears);
   const variableStableScenario = calculateAmortizedLoan(loanPrincipal, variableRateAnnual, property.loanTermYears);
-  const variableRisingScenario = calculateTwoPhaseLoanRepayment(
+  const variableRisingSummary = summarizeMultiPhaseLoan(loanPrincipal, property.loanTermYears, variableRateAnnual, rateChangeEvents);
+
+  // 固定金利 vs 変動金利グラフ用：年間返済額そのものの階段状の推移データ
+  const totalLoanYears = Math.ceil(totalLoanMonths / 12);
+  const fixedRateSchedule = generateAmortizationSchedule(loanPrincipal, fixedRateAnnual, property.loanTermYears);
+  const variableRateSchedule = generateMultiPhaseAmortizationSchedule(
     loanPrincipal,
     property.loanTermYears,
     variableRateAnnual,
-    futureRateAnnual,
+    rateChangeEvents,
   );
-
-  // 固定金利 vs 変動金利グラフ用：年間返済額そのものの階段状の推移データ
-  const totalLoanMonths = Math.round(property.loanTermYears * 12);
-  const totalLoanYears = Math.ceil(totalLoanMonths / 12);
-  const switchYear = variableRisingScenario.switchMonth > 0 ? Math.round(variableRisingScenario.switchMonth / 12) : null;
-  const fixedAnnualPayment = fixedScenario.monthlyPayment * 12;
-  const variableAnnualPaymentBeforeSwitch = variableRisingScenario.monthlyPaymentBeforeSwitch * 12;
-  const variableAnnualPaymentAfterSwitch = variableRisingScenario.monthlyPaymentAfterSwitch * 12;
 
   const rateComparisonData =
     totalLoanMonths > 0 && loanPrincipal > 0
-      ? Array.from({ length: totalLoanYears }, (_, index) => {
-          const year = index + 1;
-          return {
-            year,
-            fixedPayment: fixedAnnualPayment,
-            variablePayment:
-              switchYear !== null && year > switchYear ? variableAnnualPaymentAfterSwitch : variableAnnualPaymentBeforeSwitch,
-          };
-        })
+      ? Array.from({ length: totalLoanYears }, (_, index) => ({
+          year: index + 1,
+          fixedPayment: fixedRateSchedule[index]?.totalPaid ?? 0,
+          variablePayment: variableRateSchedule[index]?.totalPaid ?? 0,
+        }))
       : [];
-  const rateSwitchLabel = `${(switchYear ?? 0) + 1}年目に金利上昇（年率${variableRateAnnual}%→${futureRateAnnual}%）`;
+
+  const rateSwitchMarkers = stepsWithinTerm
+    .slice()
+    .sort((a, b) => a.afterYears - b.afterYears)
+    .map((step, index) => ({
+      year: step.afterYears,
+      label: `${step.afterYears}年目 ${formatRateChangePercent(step.rateChangePercent)}`,
+      position: (index % 2 === 0 ? "insideTopLeft" : "insideBottomLeft") as "insideTopLeft" | "insideBottomLeft",
+    }));
 
   const rateScenarios = [
     {
@@ -568,12 +657,13 @@ export default function FpSection({ property }: FpSectionProps) {
     },
     {
       key: "variableRising",
-      label: "変動金利が将来上昇",
-      monthlyPaymentLabel: `前半 ${formatYen(variableRisingScenario.monthlyPaymentBeforeSwitch)} → 後半 ${formatYen(
-        variableRisingScenario.monthlyPaymentAfterSwitch,
-      )}`,
-      totalRepayment: variableRisingScenario.totalRepayment,
-      totalInterest: variableRisingScenario.totalInterest,
+      label: "変動金利が上昇",
+      monthlyPaymentLabel:
+        variableRisingSummary.phases.length > 0
+          ? variableRisingSummary.phases.map((phase) => formatYen(phase.monthlyPayment)).join(" → ")
+          : formatYen(variableStableScenario.monthlyPayment),
+      totalRepayment: variableRisingSummary.totalRepayment,
+      totalInterest: variableRisingSummary.totalInterest,
     },
   ];
 
@@ -604,10 +694,10 @@ export default function FpSection({ property }: FpSectionProps) {
       <div>
         <h3 className="font-heading text-lg text-ink">固定金利 vs 変動金利</h3>
         <p className="mt-1 text-sm text-ink/55">
-          借入額・返済期間は物件情報の値を使用します。「変動金利が将来上昇」は、返済期間の半分が経過した時点で金利が変動金利シナリオから将来上昇シナリオに切り替わるという簡易的な前提での試算です。実際の金利変動を予測するものではなく、あくまで目安としてご利用ください。
+          借入額・返済期間は物件情報の値を使用します。「変動金利が上昇」は、下の上昇シナリオで指定したタイミング・幅で金利が段階的に変わり、そのたびに残りの返済期間で返済額を組み直すという前提での試算です。実際の金利変動を予測するものではなく、あくまで目安としてご利用ください。
         </p>
 
-        <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <RateInput
             id="fixedRateAnnual"
             label={
@@ -632,18 +722,119 @@ export default function FpSection({ property }: FpSectionProps) {
             value={variableRateAnnual}
             onChange={setVariableRateAnnual}
           />
-          <RateInput
-            id="futureRateAnnual"
-            label={
-              <>
-                変動金利が将来上昇した場合の想定
-                <br />
-                （年率 %）
-              </>
-            }
-            value={futureRateAnnual}
-            onChange={setFutureRateAnnual}
-          />
+        </div>
+
+        <div className="mt-6 rounded-lg border border-ink/15 bg-white p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h4 className="font-heading text-base text-ink">変動金利の上昇シナリオ</h4>
+            <label className="flex items-center gap-2 text-sm text-ink/70">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-ink/25 text-accent focus:ring-accent"
+                checked={useDetailedRateSteps}
+                onChange={(e) => handleToggleDetailedRateSteps(e.target.checked)}
+              />
+              詳細設定を使う
+            </label>
+          </div>
+
+          {!useDetailedRateSteps ? (
+            <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <RateInput
+                id="rateIncreaseAmount"
+                label={
+                  <>
+                    上昇幅
+                    <br />
+                    （%）
+                  </>
+                }
+                value={rateIncreaseAmount}
+                onChange={setRateIncreaseAmount}
+              />
+              <RateInput
+                id="rateIncreaseIntervalYears"
+                label={
+                  <>
+                    上昇の間隔
+                    <br />
+                    （年）
+                  </>
+                }
+                value={rateIncreaseIntervalYears}
+                onChange={setRateIncreaseIntervalYears}
+              />
+              <RateInput
+                id="rateIncreaseCount"
+                label={
+                  <>
+                    上昇回数
+                    <br />
+                    （回）
+                  </>
+                }
+                value={rateIncreaseCount}
+                onChange={setRateIncreaseCount}
+              />
+            </div>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {detailedRateSteps.length === 0 && (
+                <p className="text-sm text-ink/50">「行を追加」から金利変更のタイミングを追加してください。</p>
+              )}
+              {detailedRateSteps.map((step) => (
+                <div key={step.id} className="flex flex-wrap items-center gap-2">
+                  <CurrencyInput
+                    id={`rate-step-year-${step.id}`}
+                    className={COMPACT_INPUT_CLASS_NAME}
+                    value={step.afterYears === 0 ? undefined : step.afterYears}
+                    onChange={(next) => handleUpdateDetailedRateStep(step.id, { afterYears: next ?? 0 })}
+                  />
+                  <span className="text-sm text-ink/60">年目に</span>
+                  <CurrencyInput
+                    id={`rate-step-amount-${step.id}`}
+                    className={COMPACT_INPUT_CLASS_NAME}
+                    value={step.rateChangePercent === 0 ? undefined : step.rateChangePercent}
+                    onChange={(next) => handleUpdateDetailedRateStep(step.id, { rateChangePercent: next ?? 0 })}
+                  />
+                  <span className="text-sm text-ink/60">% 変化</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveDetailedRateStep(step.id)}
+                    className="min-h-9 touch-manipulation rounded-md border border-ink/20 px-3 py-1.5 text-sm font-medium text-ink/60 active:bg-ink/5"
+                  >
+                    削除
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={handleAddDetailedRateStep}
+                className="min-h-9 touch-manipulation rounded-md border border-ink/20 bg-white px-3 py-1.5 text-sm font-medium text-ink/75 active:bg-ink/5"
+              >
+                + 行を追加
+              </button>
+            </div>
+          )}
+
+          {stepsWithinTerm.length > 0 && (
+            <p className="mt-3 text-sm text-ink/55">
+              開始金利{variableRateAnnual}%
+              {stepsWithinTerm
+                .slice()
+                .sort((a, b) => a.afterYears - b.afterYears)
+                .map((step) => ` → ${step.afterYears}年目に${formatRateChangePercent(step.rateChangePercent)}`)
+                .join("")}
+            </p>
+          )}
+          {droppedStepCount > 0 && (
+            <p className="mt-1 text-xs text-[#a12f2f]">
+              返済期間（{property.loanTermYears}年）を超える上昇{droppedStepCount}件は計算に反映されていません。
+            </p>
+          )}
+          {hasNegativeRateWarning && (
+            <p className="mt-1 text-xs text-[#a12f2f]">上昇幅の設定により金利がマイナスになります。値を見直してください。</p>
+          )}
         </div>
 
         <div className="mt-4 overflow-x-auto rounded-lg border border-ink/15 bg-white">
@@ -679,9 +870,9 @@ export default function FpSection({ property }: FpSectionProps) {
         </div>
 
         <p className="mt-4 text-sm text-ink/55">
-          年間返済額の推移：固定金利シナリオと変動金利シナリオ（将来上昇）を比較しています。金利が切り替わるタイミングで返済額がどれだけ変わるかがわかります。
+          年間返済額の推移：固定金利シナリオと変動金利シナリオ（上昇シナリオ）を比較しています。縦線は金利が切り替わるタイミングです。
         </p>
-        <RateComparisonChart data={rateComparisonData} switchYear={switchYear} switchLabel={rateSwitchLabel} />
+        <RateComparisonChart data={rateComparisonData} switchMarkers={rateSwitchMarkers} />
       </div>
 
       <div>

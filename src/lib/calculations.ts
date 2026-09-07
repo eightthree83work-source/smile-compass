@@ -137,115 +137,114 @@ export function generateAmortizationSchedule(
 }
 
 // ---------------------------------------------------------------------------
-// 固定金利 vs 変動金利（簡易シミュレーション）
+// 固定金利 vs 変動金利（多段階の金利上昇シミュレーション）
 // ---------------------------------------------------------------------------
 
-export interface TwoPhaseLoanRepaymentResult {
-  /** 金利切り替え前（返済期間の前半）の月々返済額（円） */
-  monthlyPaymentBeforeSwitch: number;
-  /** 金利切り替え後（返済期間の後半）の月々返済額（円） */
-  monthlyPaymentAfterSwitch: number;
-  /** 総返済額（円） */
-  totalRepayment: number;
-  /** 総利息（円） */
-  totalInterest: number;
-  /** 金利が切り替わる時点（返済開始から何ヶ月経過時点か。ローンが存在しない場合は0） */
-  switchMonth: number;
+export interface RateChangeEvent {
+  /** 借入から何年経過した時点で金利が変わるか（例: 5なら5年経過時点＝60ヶ月経過時点） */
+  afterYears: number;
+  /** 変更後の年率（%、絶対値） */
+  newRateAnnual: number;
+}
+
+interface RatePhase {
+  startMonth: number;
+  endMonth: number;
+  annualRate: number;
+  monthlyPayment: number;
+  startBalance: number;
 }
 
 /**
- * 返済期間の半分が経過した時点で、金利がinitialAnnualRateからchangedAnnualRateへ切り替わる、
- * という簡易的な前提での2段階の元利均等返済シミュレーション。
- * 切り替え時点の残高を、残り期間・新金利で組み直した返済額に再計算する。
+ * 金利変更イベント列から、各フェーズ（開始月・終了月・適用金利・月々返済額・開始時残高）を組み立てる。
+ * 金利が変わるたびに、その時点の残高を残り期間・新金利で組み直す（フルアモチゼーション方式）。
+ * afterYearsが返済期間を超える、または0以下のイベントは無視する。同じ年に複数指定された場合は
+ * afterYears昇順で処理され、最後に適用されたものが有効になる。
  */
-export function calculateTwoPhaseLoanRepayment(
+function computeRatePhases(
   loanPrincipal: number,
-  loanTermYears: number,
+  totalMonths: number,
   initialAnnualRate: number,
-  changedAnnualRate: number,
-): TwoPhaseLoanRepaymentResult {
-  const totalMonths = Math.round(loanTermYears * 12);
+  rateChanges: RateChangeEvent[],
+): RatePhase[] {
+  const sortedChanges = [...rateChanges]
+    .filter((change) => change.afterYears > 0 && change.afterYears * 12 < totalMonths)
+    .sort((a, b) => a.afterYears - b.afterYears);
 
-  if (totalMonths <= 0 || loanPrincipal <= 0) {
-    return {
-      monthlyPaymentBeforeSwitch: 0,
-      monthlyPaymentAfterSwitch: 0,
-      totalRepayment: 0,
-      totalInterest: 0,
-      switchMonth: 0,
-    };
+  const boundaries: { switchMonth: number; annualRate: number }[] = [];
+  let cursorMonth = 0;
+  let currentRate = initialAnnualRate;
+  for (const change of sortedChanges) {
+    const switchMonth = change.afterYears * 12;
+    if (switchMonth <= cursorMonth) continue; // 同じ月への重複指定は無視（直前の値のまま）
+    boundaries.push({ switchMonth, annualRate: currentRate });
+    cursorMonth = switchMonth;
+    currentRate = change.newRateAnnual;
+  }
+  boundaries.push({ switchMonth: totalMonths, annualRate: currentRate });
+
+  let balance = loanPrincipal;
+  let previousBoundary = 0;
+  const phases: RatePhase[] = [];
+  for (const boundary of boundaries) {
+    // 月々返済額は「このフェーズの残り期間」ではなく「借入全体の残り期間（このフェーズの開始から完済まで）」で
+    // 組み直す。次に金利が変わるまでの期間だけで組むと、将来の変更を前提にした返済額になってしまうため、
+    // 常に「今の金利がこのまま続く前提」で残り期間全体を再アモチゼーションする（実際の変動金利ローンと同じ考え方）。
+    const monthCount = boundary.switchMonth - previousBoundary;
+    const remainingMonths = totalMonths - previousBoundary;
+    const { monthlyPayment } = calculateAmortizedLoan(balance, boundary.annualRate, remainingMonths / 12);
+    const startBalance = balance;
+    const monthlyRate = boundary.annualRate / 100 / 12;
+    balance = calculateRemainingBalance(balance, monthlyRate, monthlyPayment, monthCount);
+    phases.push({
+      startMonth: previousBoundary,
+      endMonth: boundary.switchMonth,
+      annualRate: boundary.annualRate,
+      monthlyPayment,
+      startBalance,
+    });
+    previousBoundary = boundary.switchMonth;
   }
 
-  const monthsBeforeSwitch = Math.floor(totalMonths / 2);
-  const monthsAfterSwitch = totalMonths - monthsBeforeSwitch;
-
-  const beforeSwitch = calculateAmortizedLoan(loanPrincipal, initialAnnualRate, loanTermYears);
-  const monthlyRateBeforeSwitch = initialAnnualRate / 100 / 12;
-  const balanceAtSwitch = calculateRemainingBalance(
-    loanPrincipal,
-    monthlyRateBeforeSwitch,
-    beforeSwitch.monthlyPayment,
-    monthsBeforeSwitch,
-  );
-
-  const afterSwitch = calculateAmortizedLoan(balanceAtSwitch, changedAnnualRate, monthsAfterSwitch / 12);
-
-  const totalRepayment = beforeSwitch.monthlyPayment * monthsBeforeSwitch + afterSwitch.monthlyPayment * monthsAfterSwitch;
-  const totalInterest = totalRepayment - loanPrincipal;
-
-  return {
-    monthlyPaymentBeforeSwitch: beforeSwitch.monthlyPayment,
-    monthlyPaymentAfterSwitch: afterSwitch.monthlyPayment,
-    totalRepayment,
-    totalInterest,
-    switchMonth: monthsBeforeSwitch,
-  };
+  return phases;
 }
 
 /**
- * calculateTwoPhaseLoanRepaymentと同じ前提（返済期間の半分で金利が切り替わる）での年別内訳
+ * 複数回の金利変更（多段階の変動金利シナリオ）に対応した年別内訳
  * （元金・利息・年末残高・累計返済額）を1年ごとに生成する。
+ * rateChangesが空の場合は単一金利のスケジュールと同じ結果になる。
  */
-export function generateTwoPhaseAmortizationSchedule(
+export function generateMultiPhaseAmortizationSchedule(
   loanPrincipal: number,
   loanTermYears: number,
   initialAnnualRate: number,
-  changedAnnualRate: number,
+  rateChanges: RateChangeEvent[],
 ): AmortizationYearPoint[] {
   const totalMonths = Math.round(loanTermYears * 12);
   if (totalMonths <= 0 || loanPrincipal <= 0) return [];
 
-  const monthsBeforeSwitch = Math.floor(totalMonths / 2);
-  const monthsAfterSwitch = totalMonths - monthsBeforeSwitch;
+  const phases = computeRatePhases(loanPrincipal, totalMonths, initialAnnualRate, rateChanges);
 
-  const beforeSwitch = calculateAmortizedLoan(loanPrincipal, initialAnnualRate, loanTermYears);
-  const monthlyRateBeforeSwitch = initialAnnualRate / 100 / 12;
-  const balanceAtSwitch = calculateRemainingBalance(
-    loanPrincipal,
-    monthlyRateBeforeSwitch,
-    beforeSwitch.monthlyPayment,
-    monthsBeforeSwitch,
-  );
-
-  const afterSwitch = calculateAmortizedLoan(balanceAtSwitch, changedAnnualRate, monthsAfterSwitch / 12);
-  const monthlyRateAfterSwitch = changedAnnualRate / 100 / 12;
+  const findPhase = (monthsElapsed: number): RatePhase =>
+    phases.find((phase) => monthsElapsed <= phase.endMonth) ?? phases[phases.length - 1];
 
   const balanceAtMonth = (monthsElapsed: number): number => {
-    if (monthsElapsed <= monthsBeforeSwitch) {
-      return calculateRemainingBalance(loanPrincipal, monthlyRateBeforeSwitch, beforeSwitch.monthlyPayment, monthsElapsed);
-    }
-    return calculateRemainingBalance(
-      balanceAtSwitch,
-      monthlyRateAfterSwitch,
-      afterSwitch.monthlyPayment,
-      monthsElapsed - monthsBeforeSwitch,
-    );
+    if (monthsElapsed <= 0) return loanPrincipal;
+    const phase = findPhase(monthsElapsed);
+    const monthlyRate = phase.annualRate / 100 / 12;
+    return calculateRemainingBalance(phase.startBalance, monthlyRate, phase.monthlyPayment, monthsElapsed - phase.startMonth);
   };
 
   const paymentBetween = (monthStart: number, monthEnd: number): number => {
-    const beforeMonths = Math.max(0, Math.min(monthEnd, monthsBeforeSwitch) - Math.min(monthStart, monthsBeforeSwitch));
-    const afterMonths = Math.max(0, monthEnd - Math.max(monthStart, monthsBeforeSwitch));
-    return beforeMonths * beforeSwitch.monthlyPayment + afterMonths * afterSwitch.monthlyPayment;
+    let total = 0;
+    for (const phase of phases) {
+      const overlapStart = Math.max(monthStart, phase.startMonth);
+      const overlapEnd = Math.min(monthEnd, phase.endMonth);
+      if (overlapEnd > overlapStart) {
+        total += (overlapEnd - overlapStart) * phase.monthlyPayment;
+      }
+    }
+    return total;
   };
 
   const years = Math.ceil(totalMonths / 12);
@@ -266,6 +265,49 @@ export function generateTwoPhaseAmortizationSchedule(
   }
 
   return points;
+}
+
+export interface MultiPhaseLoanPhaseSummary {
+  /** このフェーズが始まる年次（1年目を1とする） */
+  startYear: number;
+  /** このフェーズの月々返済額（円） */
+  monthlyPayment: number;
+  /** このフェーズで適用される年率（%） */
+  annualRate: number;
+}
+
+export interface MultiPhaseLoanSummary {
+  phases: MultiPhaseLoanPhaseSummary[];
+  /** 総返済額（円） */
+  totalRepayment: number;
+  /** 総利息（円） */
+  totalInterest: number;
+}
+
+/** 多段階の金利上昇シナリオの、フェーズごとの月々返済額・総返済額・総利息のサマリーを求める */
+export function summarizeMultiPhaseLoan(
+  loanPrincipal: number,
+  loanTermYears: number,
+  initialAnnualRate: number,
+  rateChanges: RateChangeEvent[],
+): MultiPhaseLoanSummary {
+  const totalMonths = Math.round(loanTermYears * 12);
+  if (totalMonths <= 0 || loanPrincipal <= 0) {
+    return { phases: [], totalRepayment: 0, totalInterest: 0 };
+  }
+
+  const phases = computeRatePhases(loanPrincipal, totalMonths, initialAnnualRate, rateChanges);
+  const totalRepayment = phases.reduce((sum, phase) => sum + phase.monthlyPayment * (phase.endMonth - phase.startMonth), 0);
+
+  return {
+    phases: phases.map((phase) => ({
+      startYear: Math.floor(phase.startMonth / 12) + 1,
+      monthlyPayment: phase.monthlyPayment,
+      annualRate: phase.annualRate,
+    })),
+    totalRepayment,
+    totalInterest: totalRepayment - loanPrincipal,
+  };
 }
 
 // ---------------------------------------------------------------------------
