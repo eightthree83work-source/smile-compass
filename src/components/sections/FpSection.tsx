@@ -608,8 +608,11 @@ export default function FpSection({ property }: FpSectionProps) {
     : null;
 
   // 固定金利 vs 変動金利の比較用。初期値のみPropertyの現在の金利をコピーし、以降は独立して編集できる
-  const [fixedRateAnnual, setFixedRateAnnual] = useState(() => property.interestRateAnnual);
-  const [variableRateAnnual, setVariableRateAnnual] = useState(() => property.interestRateAnnual);
+  // 「0.5」のような0始まりの小数やマイナス値を頭から入力できるよう、文字列で保持し計算時にのみ数値化する
+  const [fixedRateAnnualInput, setFixedRateAnnualInput] = useState(() => String(property.interestRateAnnual));
+  const [variableRateAnnualInput, setVariableRateAnnualInput] = useState(() => String(property.interestRateAnnual));
+  const fixedRateAnnual = parseSignedDecimal(fixedRateAnnualInput);
+  const variableRateAnnual = parseSignedDecimal(variableRateAnnualInput);
 
   // 変動金利の上昇シナリオ：簡単入力モード（上昇幅・間隔・回数）と詳細設定モード（行の自由編集）を切り替えられる
   const [useDetailedRateSteps, setUseDetailedRateSteps] = useState(false);
@@ -746,7 +749,7 @@ export default function FpSection({ property }: FpSectionProps) {
         </p>
 
         <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <RateInput
+          <SignedDecimalInput
             id="fixedRateAnnual"
             label={
               <>
@@ -755,10 +758,10 @@ export default function FpSection({ property }: FpSectionProps) {
                 （年率 %）
               </>
             }
-            value={fixedRateAnnual}
-            onChange={setFixedRateAnnual}
+            value={fixedRateAnnualInput}
+            onChange={setFixedRateAnnualInput}
           />
-          <RateInput
+          <SignedDecimalInput
             id="variableRateAnnual"
             label={
               <>
@@ -767,8 +770,8 @@ export default function FpSection({ property }: FpSectionProps) {
                 （当初年率 %）
               </>
             }
-            value={variableRateAnnual}
-            onChange={setVariableRateAnnual}
+            value={variableRateAnnualInput}
+            onChange={setVariableRateAnnualInput}
           />
         </div>
 
