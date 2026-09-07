@@ -35,6 +35,9 @@ const JUDGMENT_LABELS: Record<ValuationJudgment, string> = {
   overvalued: "割高",
 };
 
+/** SNSのタイムラインで目に留まるようにする一言。他の候補は完了報告に記載 */
+const CATCH_COPY = "この物件、プロならこう診断する";
+
 export interface ShareResultCardProps {
   displayedLocation: string;
   issuedDate: string;
@@ -73,6 +76,29 @@ function CompassIcon({ size }: { size: number }) {
   );
 }
 
+/** 背景の間延びを防ぐための、コンパスの目盛りを模した薄い装飾（透かし） */
+function CompassWatermark({ size, opacity, style }: { size: number; opacity: number; style?: React.CSSProperties }) {
+  const ticks = Array.from({ length: 12 }, (_, i) => (i * Math.PI) / 6);
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" style={{ position: "absolute", ...style }}>
+      <circle cx="50" cy="50" r="47" fill="none" stroke={INK} strokeOpacity={opacity} strokeWidth="1.4" />
+      <circle cx="50" cy="50" r="36" fill="none" stroke={INK} strokeOpacity={opacity} strokeWidth="1" />
+      {ticks.map((angle, i) => (
+        <line
+          key={i}
+          x1={50 + 47 * Math.cos(angle)}
+          y1={50 + 47 * Math.sin(angle)}
+          x2={50 + 40 * Math.cos(angle)}
+          y2={50 + 40 * Math.sin(angle)}
+          stroke={INK}
+          strokeOpacity={opacity}
+          strokeWidth="1.6"
+        />
+      ))}
+    </svg>
+  );
+}
+
 function StatCard({
   icons,
   label,
@@ -85,22 +111,22 @@ function StatCard({
   caption?: string;
 }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, background: WHITE, borderRadius: 16, padding: "20px 22px", gap: 6 }}>
-      <div style={{ display: "flex", marginLeft: icons.length > 1 ? 8 : 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, background: WHITE, borderRadius: 18, padding: "18px 20px", gap: 4 }}>
+      <div style={{ display: "flex", marginLeft: icons.length > 1 ? 10 : 0 }}>
         {icons.map((src, index) => (
           // eslint-disable-next-line @next/next/no-img-element -- html-to-imageでのキャプチャ対象のため素のimgを使う
           <img
             key={src}
             src={src}
             alt=""
-            width={40}
-            height={40}
-            style={{ borderRadius: 20, border: `2px solid ${WHITE}`, marginLeft: index > 0 ? -12 : 0 }}
+            width={44}
+            height={44}
+            style={{ borderRadius: 22, border: `2px solid ${WHITE}`, marginLeft: index > 0 ? -14 : 0 }}
           />
         ))}
       </div>
-      <div style={{ fontSize: 14, color: "rgba(26,36,32,0.55)", marginTop: 6 }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: INK, lineHeight: 1.2 }}>{value}</div>
+      <div style={{ fontSize: 15, color: "rgba(26,36,32,0.55)", marginTop: 6 }}>{label}</div>
+      <div style={{ fontSize: 34, fontWeight: 700, color: INK, lineHeight: 1.15 }}>{value}</div>
       {caption && <div style={{ fontSize: 12, color: "rgba(26,36,32,0.45)" }}>{caption}</div>}
     </div>
   );
@@ -110,13 +136,13 @@ function ComparisonBar({ label, valueLabel, percent, color }: { label: string; v
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 16, width: "100%" }}>
       <div style={{ width: 110, fontSize: 15, color: "rgba(26,36,32,0.6)", flexShrink: 0, whiteSpace: "nowrap" }}>{label}</div>
-      <div style={{ display: "flex", flex: 1, height: 20, background: "rgba(26,36,32,0.08)", borderRadius: 10 }}>
-        <div style={{ width: `${percent}%`, height: "100%", background: color, borderRadius: 10 }} />
+      <div style={{ display: "flex", flex: 1, height: 24, background: "rgba(26,36,32,0.08)", borderRadius: 12 }}>
+        <div style={{ width: `${percent}%`, height: "100%", background: color, borderRadius: 12 }} />
       </div>
       <div
         style={{
-          width: 170,
-          fontSize: 14,
+          width: 175,
+          fontSize: 15,
           fontWeight: 700,
           color: INK,
           textAlign: "right",
@@ -159,7 +185,7 @@ export default function ShareResultCard({
         left: -9999,
         top: 0,
         width: 1200,
-        height: 980,
+        height: 1080,
         pointerEvents: "none",
       }}
       aria-hidden="true"
@@ -169,7 +195,7 @@ export default function ShareResultCard({
         className={`${shipporiMincho.className} ${notoSansJp.className}`}
         style={{
           width: 1200,
-          height: 980,
+          height: 1080,
           display: "flex",
           flexDirection: "column",
           background: BACKGROUND,
@@ -179,23 +205,37 @@ export default function ShareResultCard({
           overflow: "hidden",
         }}
       >
+        {/* コーナーのアクセント装飾 */}
         <div
           style={{
             position: "absolute",
-            top: -120,
-            right: -120,
-            width: 360,
-            height: 360,
-            borderRadius: 180,
-            background: "rgba(232,101,74,0.12)",
+            top: -130,
+            right: -130,
+            width: 400,
+            height: 400,
+            borderRadius: 200,
+            background: "rgba(232,101,74,0.14)",
           }}
         />
-        <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: 8, background: ACCENT }} />
+        <div
+          style={{
+            position: "absolute",
+            bottom: -90,
+            left: -90,
+            width: 260,
+            height: 260,
+            borderRadius: 130,
+            background: "rgba(26,36,32,0.06)",
+          }}
+        />
+        {/* 下部の余白を埋めるコンパスの目盛り透かし */}
+        <CompassWatermark size={520} opacity={0.05} style={{ bottom: -160, right: -80 }} />
+        <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: 10, background: ACCENT }} />
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 48 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <CompassIcon size={56} />
-            <div style={{ fontSize: 34, fontWeight: 800, color: INK, fontFamily: shipporiMincho.style.fontFamily }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 40 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+            <CompassIcon size={78} />
+            <div style={{ fontSize: 48, fontWeight: 800, color: INK, fontFamily: shipporiMincho.style.fontFamily }}>
               smile compass
             </div>
           </div>
@@ -205,19 +245,23 @@ export default function ShareResultCard({
           </div>
         </div>
 
-        <div style={{ fontSize: 24, fontWeight: 700, color: INK, marginTop: 20 }}>{displayedLocation}</div>
+        <div style={{ display: "flex", fontSize: 30, fontWeight: 700, color: ACCENT, marginTop: 22, lineHeight: 1.3 }}>
+          {CATCH_COPY}
+        </div>
 
-        <div style={{ width: "100%", height: 1, background: "rgba(26,36,32,0.12)", marginTop: 24 }} />
+        <div style={{ fontSize: 22, fontWeight: 700, color: "rgba(26,36,32,0.7)", marginTop: 26 }}>{displayedLocation}</div>
+
+        <div style={{ width: "100%", height: 1, background: "rgba(26,36,32,0.12)", marginTop: 18 }} />
 
         <div
           style={{
             display: "flex",
             flexDirection: "column",
             background: WHITE,
-            borderRadius: 20,
-            padding: "28px 32px",
-            marginTop: 28,
-            gap: 14,
+            borderRadius: 24,
+            padding: "26px 36px",
+            marginTop: 20,
+            gap: 12,
           }}
         >
           <div style={{ fontSize: 15, color: "rgba(26,36,32,0.5)" }}>不動産プロのサポート・坪単価判定</div>
@@ -230,15 +274,15 @@ export default function ShareResultCard({
                   alignSelf: "flex-start",
                   background: judgmentColor,
                   color: WHITE,
-                  fontSize: 28,
+                  fontSize: 42,
                   fontWeight: 700,
-                  padding: "10px 32px",
-                  borderRadius: 32,
+                  padding: "16px 48px",
+                  borderRadius: 44,
                 }}
               >
                 {JUDGMENT_LABELS[valuationResult.judgment]}
               </div>
-              <div style={{ display: "flex", gap: 40, marginTop: 4, fontSize: 17, color: INK }}>
+              <div style={{ display: "flex", gap: 40, marginTop: 6, fontSize: 18, color: INK }}>
                 <div style={{ whiteSpace: "nowrap", flexShrink: 0 }}>
                   あなたの物件: {ownPricePerTsubo.toFixed(1)}万円/坪
                 </div>
@@ -246,10 +290,10 @@ export default function ShareResultCard({
                   周辺相場: {marketPricePerTsuboManYen.toFixed(1)}万円/坪
                 </div>
               </div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: judgmentColor }}>
+              <div style={{ fontSize: 44, fontWeight: 800, color: judgmentColor, marginTop: 2 }}>
                 相場より{Math.abs(valuationResult.diffPercent).toFixed(1)}%{JUDGMENT_LABELS[valuationResult.judgment]}
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 10 }}>
                 <ComparisonBar
                   label="あなたの物件"
                   valueLabel={`${ownPricePerTsubo.toFixed(1)}万円/坪`}
@@ -271,7 +315,7 @@ export default function ShareResultCard({
           )}
         </div>
 
-        <div style={{ display: "flex", gap: 20, marginTop: 24 }}>
+        <div style={{ display: "flex", gap: 18, marginTop: 20 }}>
           <StatCard icons={["/characters/tab-icons/fp-squirrel-face.png"]} label="月々返済額" value={formatYen(monthlyPayment)} />
           <StatCard
             icons={["/characters/tab-icons/fp-squirrel-face.png"]}
@@ -286,31 +330,31 @@ export default function ShareResultCard({
           />
         </div>
 
-        <div style={{ display: "flex", justifyContent: "center", fontSize: 14, color: "rgba(26,36,32,0.55)", marginTop: 28 }}>
+        <div style={{ display: "flex", justifyContent: "center", fontSize: 19, fontWeight: 700, color: "rgba(26,36,32,0.6)", marginTop: 26 }}>
           4人の専門家があなたをサポート
         </div>
-        <div style={{ display: "flex", justifyContent: "center", gap: 24, marginTop: 10 }}>
+        <div style={{ display: "flex", justifyContent: "center", gap: 20, marginTop: 12 }}>
           {[
             { src: "/characters/tab-icons/realtor-dog-face.png", role: "不動産プロ" },
             { src: "/characters/tab-icons/legal-owl-face.png", role: "宅建士" },
             { src: "/characters/tab-icons/inspector-mole-face.png", role: "住宅診断士" },
             { src: "/characters/tab-icons/fp-squirrel-face.png", role: "FP" },
           ].map(({ src, role }) => (
-            <div key={src} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, width: 88 }}>
+            <div key={src} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, width: 112 }}>
               <div
                 style={{
                   display: "flex",
-                  width: 72,
-                  height: 72,
-                  borderRadius: 36,
+                  width: 96,
+                  height: 96,
+                  borderRadius: 48,
                   overflow: "hidden",
-                  border: `3px solid ${INK}`,
+                  border: `4px solid ${INK}`,
                 }}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element -- html-to-imageでのキャプチャ対象のため素のimgを使う */}
-                <img src={src} alt="" width={72} height={72} style={{ objectFit: "cover" }} />
+                <img src={src} alt="" width={96} height={96} style={{ objectFit: "cover" }} />
               </div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(26,36,32,0.65)", whiteSpace: "nowrap" }}>{role}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "rgba(26,36,32,0.7)", whiteSpace: "nowrap" }}>{role}</div>
             </div>
           ))}
         </div>
@@ -323,11 +367,11 @@ export default function ShareResultCard({
             gap: 12,
             background: INK,
             color: WHITE,
-            borderRadius: 16,
-            padding: "20px 0",
-            marginTop: 28,
+            borderRadius: 20,
+            padding: "24px 0",
+            marginTop: 26,
             marginBottom: 40,
-            fontSize: 22,
+            fontSize: 26,
             fontWeight: 700,
           }}
         >

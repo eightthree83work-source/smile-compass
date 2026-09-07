@@ -46,6 +46,26 @@ function buildTwitterIntentUrl(): string {
   return `https://twitter.com/intent/tweet?${params.toString()}`;
 }
 
+/** 「共有」を表す一般的なアイコン（箱から矢印が上に飛び出す形） */
+function ShareIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M12 15V4" />
+      <path d="M7.5 8.5 12 4l4.5 4.5" />
+      <path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" />
+    </svg>
+  );
+}
+
 export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManYen }: DiagnosisSummaryCardProps) {
   const shareCardRef = useRef<HTMLDivElement>(null);
   const [showFullAddress, setShowFullAddress] = useState(false);
@@ -158,9 +178,10 @@ export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManY
           type="button"
           onClick={handleShare}
           disabled={isGeneratingImage}
-          className="min-h-9 touch-manipulation rounded-md border border-ink/20 bg-white px-3 py-1.5 text-sm font-medium text-ink/75 active:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex min-h-12 touch-manipulation items-center gap-2 rounded-full bg-accent px-5 py-3 text-base font-bold text-white shadow-sm active:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {isGeneratingImage ? "生成中..." : "診断結果をシェアする"}
+          <ShareIcon className="h-5 w-5 shrink-0" />
+          {isGeneratingImage ? "生成中..." : "診断結果をシェアする🧭"}
         </button>
       </div>
       {imageError && <p className="px-1 pb-2 text-right text-xs text-[#a12f2f]">{imageError}</p>}
