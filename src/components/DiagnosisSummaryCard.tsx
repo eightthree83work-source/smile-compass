@@ -38,12 +38,19 @@ const JUDGMENT_STYLES: Record<string, string> = {
 };
 
 const SHARE_APP_URL = "smile-compass.vercel.app";
+const SHARE_TEXT = "smile compassで住まいの診断をしてみました🧭\n#smilecompass #住まい探し";
+
+function buildTwitterIntentUrl(): string {
+  const params = new URLSearchParams({ text: SHARE_TEXT, url: `https://${SHARE_APP_URL}` });
+  return `https://twitter.com/intent/tweet?${params.toString()}`;
+}
 
 export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManYen }: DiagnosisSummaryCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const [showFullAddress, setShowFullAddress] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [showTwitterFallback, setShowTwitterFallback] = useState(false);
 
   const hasEnoughData = property.price > 0 && property.floorAreaSqm > 0;
 
@@ -80,10 +87,11 @@ export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManY
   const today = new Date();
   const issuedDate = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
 
-  const handleSaveImage = async () => {
+  const handleShare = async () => {
     if (!cardRef.current || isGeneratingImage) return;
 
     setImageError(null);
+    setShowTwitterFallback(false);
     setIsGeneratingImage(true);
 
     try {
@@ -96,7 +104,7 @@ export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManY
         backgroundColor: "#ffffff",
       });
 
-      const fileName = `smile-compass-diagnosis-${today.toISOString().slice(0, 10)}.png`;
+      const fileName = "smile-compass-diagnosis.png";
 
       const canUseShareSheet =
         typeof navigator !== "undefined" && typeof navigator.share === "function" && typeof navigator.canShare === "function";
@@ -109,17 +117,20 @@ export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManY
           await navigator.share({
             files: [file],
             title: "smile compass 診断サマリー",
-            text: "smile compassで住宅の診断サマリーを作成しました",
+            text: SHARE_TEXT,
+            url: `https://${SHARE_APP_URL}`,
           });
           return;
         }
       }
 
-      // navigator.shareが使えない環境（PCのブラウザなど）は従来通りダウンロードさせる
+      // navigator.shareが使えない環境（PCのブラウザなど）は画像をダウンロードさせ、
+      // あわせてXの投稿画面をあとから開けるようにする
       const link = document.createElement("a");
       link.href = dataUrl;
       link.download = fileName;
       link.click();
+      setShowTwitterFallback(true);
     } catch (error) {
       // ユーザーが共有シートをキャンセルした場合、AbortErrorが発生するがエラー表示は不要
       if (error instanceof DOMException && error.name === "AbortError") return;
@@ -144,14 +155,27 @@ export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManY
         </label>
         <button
           type="button"
-          onClick={handleSaveImage}
+          onClick={handleShare}
           disabled={isGeneratingImage}
           className="min-h-9 touch-manipulation rounded-md border border-ink/20 bg-white px-3 py-1.5 text-sm font-medium text-ink/75 active:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {isGeneratingImage ? "生成中..." : "画像で保存する"}
+          {isGeneratingImage ? "生成中..." : "診断結果をシェアする"}
         </button>
       </div>
       {imageError && <p className="px-1 pb-2 text-right text-xs text-[#a12f2f]">{imageError}</p>}
+      {showTwitterFallback && (
+        <div className="flex flex-col items-end gap-1 px-1 pb-2">
+          <a
+            href={buildTwitterIntentUrl()}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="min-h-9 touch-manipulation rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white active:opacity-80"
+          >
+            Xでシェアする
+          </a>
+          <p className="text-xs text-ink/50">ダウンロードした画像を投稿画面に添付してください</p>
+        </div>
+      )}
 
       <div ref={cardRef} className="rounded-lg border border-ink/15 bg-white px-6 py-6 sm:px-10 sm:py-8">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-ink/10 pb-4">
