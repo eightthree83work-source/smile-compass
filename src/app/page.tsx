@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Header from "@/components/Header";
 import PropertyForm from "@/components/PropertyForm";
 import SavedPropertySelector from "@/components/SavedPropertySelector";
@@ -52,6 +52,9 @@ export default function Home() {
 
   // 不動産プロのサポートタブの周辺相場は、診断サマリーカードでも使うためpage側で保持する
   const [marketPricePerTsuboManYen, setMarketPricePerTsuboManYen] = useState(0);
+  const [isAutoFetchingMarketPrice, setIsAutoFetchingMarketPrice] = useState(false);
+  // 直前に自動取得を試みた住所。同じ住所に対する再取得を防ぐ簡易キャッシュとして使う
+  const lastAutoFetchedLocationRef = useRef<string | null>(null);
 
   // ページを開いた時（リロード時含む）、編集中データ・保存済み一覧をそれぞれ復元する
   useEffect(() => {
@@ -90,6 +93,45 @@ export default function Home() {
     const draft: StoredDraft = { property, currentPropertyId };
     window.localStorage.setItem(CURRENT_PROPERTY_STORAGE_KEY, JSON.stringify(draft));
   }, [property, currentPropertyId, isHydrated]);
+
+  // 所在地の入力が止まってから800ms後に、周辺相場の坪単価を自動取得する。
+  // 同じ住所に対しては（marketPricePerTsuboManYenが既に入っている限り）再取得しない簡易キャッシュ付き。
+  useEffect(() => {
+    if (!isHydrated) return;
+
+    const trimmedLocation = property.location.trim();
+    if (!trimmedLocation) return;
+    if (trimmedLocation === lastAutoFetchedLocationRef.current && marketPricePerTsuboManYen > 0) return;
+
+    const timer = setTimeout(async () => {
+      // タイマー待機中に手動入力などで既に同じ住所分が反映されていれば、上書きしない
+      if (trimmedLocation === lastAutoFetchedLocationRef.current) return;
+
+      setIsAutoFetchingMarketPrice(true);
+      try {
+        const res = await fetch(`/api/land-price?location=${encodeURIComponent(trimmedLocation)}`);
+        const data: { marketPricePerTsuboManYen?: number } = await res.json();
+        if (res.ok && typeof data.marketPricePerTsuboManYen === "number") {
+          setMarketPricePerTsuboManYen(Math.round(data.marketPricePerTsuboManYen * 10) / 10);
+          lastAutoFetchedLocationRef.current = trimmedLocation;
+        }
+        // 失敗時はエラー表示せず、従来通り手入力できる状態のままにする
+      } catch {
+        // 失敗時も同様に握りつぶす
+      } finally {
+        setIsAutoFetchingMarketPrice(false);
+      }
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [property.location, marketPricePerTsuboManYen, isHydrated]);
+
+  // 手動入力・手動再取得（ValuationSection側）の場合も、現在の住所分は取得済み扱いにして
+  // あとから自動取得タイマーが上書きしないようにする
+  const handleMarketPriceChange = (value: number) => {
+    lastAutoFetchedLocationRef.current = property.location.trim();
+    setMarketPricePerTsuboManYen(value);
+  };
 
   const handleReset = () => {
     if (!window.confirm("入力内容をリセットします。よろしいですか？")) return;
@@ -244,7 +286,8 @@ export default function Home() {
           <ValuationSection
             property={property}
             marketPricePerTsuboManYen={marketPricePerTsuboManYen}
-            onMarketPricePerTsuboManYenChange={setMarketPricePerTsuboManYen}
+            onMarketPricePerTsuboManYenChange={handleMarketPriceChange}
+            isAutoFetchingMarketPrice={isAutoFetchingMarketPrice}
           />
         )}
         {activeTab === "legal" && <LegalSection property={property} />}

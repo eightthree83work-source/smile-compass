@@ -17,6 +17,8 @@ interface ValuationSectionProps {
   property: Property;
   marketPricePerTsuboManYen: number;
   onMarketPricePerTsuboManYenChange: (value: number) => void;
+  /** 所在地入力に基づく自動取得（page.tsx側）が進行中かどうか */
+  isAutoFetchingMarketPrice?: boolean;
 }
 
 interface LandPriceApiResponse {
@@ -61,6 +63,7 @@ export default function ValuationSection({
   property,
   marketPricePerTsuboManYen,
   onMarketPricePerTsuboManYenChange,
+  isAutoFetchingMarketPrice = false,
 }: ValuationSectionProps) {
   const [isFetching, setIsFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -117,7 +120,7 @@ export default function ValuationSection({
       </div>
 
       <p className="rounded-md border border-ink/15 bg-ink/5 p-3 text-sm text-ink/65">
-        「周辺相場を自動取得」は国土交通省 不動産情報ライブラリの公開データに基づく概算です。SUUMO・不動産情報ライブラリで実際の周辺相場もあわせてご確認のうえ、必要であれば手入力で上書きしてください。
+        周辺相場は所在地の入力に応じて自動取得されます（国土交通省 不動産情報ライブラリの公開データに基づく概算）。SUUMO・不動産情報ライブラリで実際の周辺相場もあわせてご確認のうえ、必要であれば手入力で上書きしてください。「周辺相場を自動取得」ボタンは、住所変更後にもう一度取得し直したい場合にお使いください。
       </p>
 
       <div className="rounded-lg border border-ink/15 bg-white p-4">
@@ -142,6 +145,9 @@ export default function ValuationSection({
                 setFetchResult(null);
               }}
             />
+            {isAutoFetchingMarketPrice && (
+              <p className="mt-1 text-xs text-ink/45">所在地から周辺相場を自動取得中...</p>
+            )}
 
             <button
               type="button"

@@ -8,6 +8,7 @@ import { getLegalChecklist } from "@/lib/legalChecklist";
 import { getInspectionChecklist } from "@/lib/inspectionChecklist";
 import { truncateAddressToCityLevel } from "@/lib/address";
 import { VALUATION_JUDGMENT_LABELS, calculatePricePerTsuboManYen, judgeValuation } from "@/lib/valuation";
+import ShareResultCard from "@/components/ShareResultCard";
 import {
   FpAdvisorFaceIcon,
   InspectorFaceIcon,
@@ -46,7 +47,7 @@ function buildTwitterIntentUrl(): string {
 }
 
 export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManYen }: DiagnosisSummaryCardProps) {
-  const cardRef = useRef<HTMLDivElement>(null);
+  const shareCardRef = useRef<HTMLDivElement>(null);
   const [showFullAddress, setShowFullAddress] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -88,7 +89,7 @@ export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManY
   const issuedDate = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
 
   const handleShare = async () => {
-    if (!cardRef.current || isGeneratingImage) return;
+    if (!shareCardRef.current || isGeneratingImage) return;
 
     setImageError(null);
     setShowTwitterFallback(false);
@@ -98,7 +99,7 @@ export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManY
       // Webフォント（Shippori Mincho・Noto Sans JP等）の読み込みを待ってからキャプチャする
       await document.fonts.ready;
 
-      const dataUrl = await toPng(cardRef.current, {
+      const dataUrl = await toPng(shareCardRef.current, {
         pixelRatio: 2,
         cacheBust: true,
         backgroundColor: "#ffffff",
@@ -177,7 +178,7 @@ export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManY
         </div>
       )}
 
-      <div ref={cardRef} className="rounded-lg border border-ink/15 bg-white px-6 py-6 sm:px-10 sm:py-8">
+      <div className="rounded-lg border border-ink/15 bg-white px-6 py-6 sm:px-10 sm:py-8">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-ink/10 pb-4">
           <div>
             <p className="text-xs tracking-[0.2em] text-ink/45">DIAGNOSIS SUMMARY</p>
@@ -249,6 +250,19 @@ export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManY
           <span className="text-[10px] tracking-wide">{SHARE_APP_URL}</span>
         </div>
       </div>
+
+      <ShareResultCard
+        cardRef={shareCardRef}
+        displayedLocation={displayedLocation}
+        issuedDate={issuedDate}
+        ownPricePerTsubo={pricePerTsubo}
+        marketPricePerTsuboManYen={marketPricePerTsuboManYen}
+        valuationResult={valuationResult}
+        monthlyPayment={repayment.monthlyPayment}
+        netLifetimeCost={lifetimeCost.netLifetimeCost}
+        legalChecklistCount={legalChecklist.length}
+        inspectionChecklistCount={inspectionChecklist.length}
+      />
     </div>
   );
 }
