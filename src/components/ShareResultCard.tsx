@@ -109,11 +109,23 @@ function StatCard({
 function ComparisonBar({ label, valueLabel, percent, color }: { label: string; valueLabel: string; percent: number; color: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 16, width: "100%" }}>
-      <div style={{ width: 110, fontSize: 15, color: "rgba(26,36,32,0.6)", flexShrink: 0 }}>{label}</div>
+      <div style={{ width: 110, fontSize: 15, color: "rgba(26,36,32,0.6)", flexShrink: 0, whiteSpace: "nowrap" }}>{label}</div>
       <div style={{ display: "flex", flex: 1, height: 20, background: "rgba(26,36,32,0.08)", borderRadius: 10 }}>
         <div style={{ width: `${percent}%`, height: "100%", background: color, borderRadius: 10 }} />
       </div>
-      <div style={{ width: 140, fontSize: 15, fontWeight: 700, color: INK, textAlign: "right", flexShrink: 0 }}>{valueLabel}</div>
+      <div
+        style={{
+          width: 170,
+          fontSize: 14,
+          fontWeight: 700,
+          color: INK,
+          textAlign: "right",
+          flexShrink: 0,
+          whiteSpace: "nowrap",
+        }}
+      >
+        {valueLabel}
+      </div>
     </div>
   );
 }
@@ -226,9 +238,13 @@ export default function ShareResultCard({
               >
                 {JUDGMENT_LABELS[valuationResult.judgment]}
               </div>
-              <div style={{ display: "flex", gap: 32, marginTop: 4, fontSize: 18, color: INK }}>
-                <div>あなたの物件: {ownPricePerTsubo.toFixed(1)}万円/坪</div>
-                <div>周辺相場: {marketPricePerTsuboManYen.toFixed(1)}万円/坪</div>
+              <div style={{ display: "flex", gap: 40, marginTop: 4, fontSize: 17, color: INK }}>
+                <div style={{ whiteSpace: "nowrap", flexShrink: 0 }}>
+                  あなたの物件: {ownPricePerTsubo.toFixed(1)}万円/坪
+                </div>
+                <div style={{ whiteSpace: "nowrap", flexShrink: 0 }}>
+                  周辺相場: {marketPricePerTsuboManYen.toFixed(1)}万円/坪
+                </div>
               </div>
               <div style={{ fontSize: 22, fontWeight: 700, color: judgmentColor }}>
                 相場より{Math.abs(valuationResult.diffPercent).toFixed(1)}%{JUDGMENT_LABELS[valuationResult.judgment]}
@@ -270,26 +286,31 @@ export default function ShareResultCard({
           />
         </div>
 
-        <div style={{ display: "flex", justifyContent: "center", gap: 24, marginTop: 28 }}>
+        <div style={{ display: "flex", justifyContent: "center", fontSize: 14, color: "rgba(26,36,32,0.55)", marginTop: 28 }}>
+          4人の専門家があなたをサポート
+        </div>
+        <div style={{ display: "flex", justifyContent: "center", gap: 24, marginTop: 10 }}>
           {[
-            "/characters/tab-icons/realtor-dog-face.png",
-            "/characters/tab-icons/legal-owl-face.png",
-            "/characters/tab-icons/inspector-mole-face.png",
-            "/characters/tab-icons/fp-squirrel-face.png",
-          ].map((src) => (
-            <div
-              key={src}
-              style={{
-                display: "flex",
-                width: 72,
-                height: 72,
-                borderRadius: 36,
-                overflow: "hidden",
-                border: `3px solid ${INK}`,
-              }}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element -- html-to-imageでのキャプチャ対象のため素のimgを使う */}
-              <img src={src} alt="" width={72} height={72} style={{ objectFit: "cover" }} />
+            { src: "/characters/tab-icons/realtor-dog-face.png", role: "不動産プロ" },
+            { src: "/characters/tab-icons/legal-owl-face.png", role: "宅建士" },
+            { src: "/characters/tab-icons/inspector-mole-face.png", role: "住宅診断士" },
+            { src: "/characters/tab-icons/fp-squirrel-face.png", role: "FP" },
+          ].map(({ src, role }) => (
+            <div key={src} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, width: 88 }}>
+              <div
+                style={{
+                  display: "flex",
+                  width: 72,
+                  height: 72,
+                  borderRadius: 36,
+                  overflow: "hidden",
+                  border: `3px solid ${INK}`,
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- html-to-imageでのキャプチャ対象のため素のimgを使う */}
+                <img src={src} alt="" width={72} height={72} style={{ objectFit: "cover" }} />
+              </div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(26,36,32,0.65)", whiteSpace: "nowrap" }}>{role}</div>
             </div>
           ))}
         </div>
