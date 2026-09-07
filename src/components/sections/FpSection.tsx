@@ -105,17 +105,29 @@ interface RateIncreaseStep {
   id: string;
   /** 借入から何年後にこの上昇が起きるか */
   afterYears: number;
-  /** この回の上昇幅（%、前の金利からの差分） */
-  rateChangePercent: number;
+  /**
+   * この回の上昇幅（%、前の金利からの差分）の入力文字列。
+   * 「-」「0」「0.」「-0」のような入力途中の状態もそのまま保持できるよう、
+   * 数値ではなく文字列でstateに持つ（onChangeで都度Number変換すると、
+   * 入力途中の不完全な文字列がNaN扱いになり、入力が弾かれてしまうため）。
+   * 実際の計算に使う数値への変換はparseSignedDecimalで行う。
+   */
+  rateChangePercentInput: string;
+}
+
+/** 数値として不完全な入力途中の文字列（""「-」「.」など）はNumber()がNaNを返すため、その場合は0として扱う */
+function parseSignedDecimal(input: string): number {
+  const parsed = Number(input);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 /** 「上昇幅・間隔・回数」から、間隔ごとに一定幅で上昇するステップ列を生成する（簡単入力モード用） */
-function generateStepsFromSimpleInputs(amount: number, intervalYears: number, count: number): RateIncreaseStep[] {
+function generateStepsFromSimpleInputs(amountInput: string, intervalYears: number, count: number): RateIncreaseStep[] {
   if (intervalYears <= 0 || count <= 0) return [];
   return Array.from({ length: count }, (_, index) => ({
     id: `simple-${index}`,
     afterYears: intervalYears * (index + 1),
-    rateChangePercent: amount,
+    rateChangePercentInput: amountInput,
   }));
 }
 
@@ -124,7 +136,7 @@ function buildRateChangeEvents(initialRateAnnual: number, steps: RateIncreaseSte
   const sorted = [...steps].sort((a, b) => a.afterYears - b.afterYears);
   let cumulativeRate = initialRateAnnual;
   return sorted.map((step) => {
-    cumulativeRate += step.rateChangePercent;
+    cumulativeRate += parseSignedDecimal(step.rateChangePercentInput);
     return { afterYears: step.afterYears, newRateAnnual: cumulativeRate };
   });
 }
@@ -194,6 +206,41 @@ function RateInput({
         className={INPUT_CLASS_NAME}
         value={value === 0 ? undefined : value}
         onChange={(next) => onChange(next ?? 0)}
+      />
+    </div>
+  );
+}
+
+/**
+ * 符号付き小数（マイナス値・「0.25」のような0始まりの小数）を入力するための欄。
+ * CurrencyInputは「-」を除去する・「0」を空欄扱いにする等、符号付き小数の入力途中の状態を
+ * 保持できないため、ここでは数値変換をせず入力文字列をそのままstateに渡す。
+ */
+function SignedDecimalInput({
+  id,
+  label,
+  value,
+  onChange,
+  className = INPUT_CLASS_NAME,
+}: {
+  id: string;
+  label: ReactNode;
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="block text-sm font-medium text-ink/80">
+        {label}
+      </label>
+      <input
+        id={id}
+        type="text"
+        inputMode="decimal"
+        className={className}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
       />
     </div>
   );
@@ -566,18 +613,24 @@ export default function FpSection({ property }: FpSectionProps) {
 
   // 変動金利の上昇シナリオ：簡単入力モード（上昇幅・間隔・回数）と詳細設定モード（行の自由編集）を切り替えられる
   const [useDetailedRateSteps, setUseDetailedRateSteps] = useState(false);
-  const [rateIncreaseAmount, setRateIncreaseAmount] = useState(0.25);
+  const [rateIncreaseAmountInput, setRateIncreaseAmountInput] = useState("0.25");
   const [rateIncreaseIntervalYears, setRateIncreaseIntervalYears] = useState(5);
   const [rateIncreaseCount, setRateIncreaseCount] = useState(4);
   const [detailedRateSteps, setDetailedRateSteps] = useState<RateIncreaseStep[]>([]);
 
-  const simpleModeSteps = generateStepsFromSimpleInputs(rateIncreaseAmount, rateIncreaseIntervalYears, rateIncreaseCount);
+  const simpleModeSteps = generateStepsFromSimpleInputs(
+    rateIncreaseAmountInput,
+    rateIncreaseIntervalYears,
+    rateIncreaseCount,
+  );
   const activeRateSteps = useDetailedRateSteps ? detailedRateSteps : simpleModeSteps;
 
   const handleToggleDetailedRateSteps = (checked: boolean) => {
     if (checked && detailedRateSteps.length === 0) {
       setDetailedRateSteps(
-        simpleModeSteps.length > 0 ? simpleModeSteps : [{ id: generateId(), afterYears: 5, rateChangePercent: 0.25 }],
+        simpleModeSteps.length > 0
+          ? simpleModeSteps
+          : [{ id: generateId(), afterYears: 5, rateChangePercentInput: "0.25" }],
       );
     }
     setUseDetailedRateSteps(checked);
@@ -586,11 +639,14 @@ export default function FpSection({ property }: FpSectionProps) {
   const handleAddDetailedRateStep = () => {
     setDetailedRateSteps((prev) => [
       ...prev,
-      { id: generateId(), afterYears: (prev[prev.length - 1]?.afterYears ?? 0) + 5, rateChangePercent: 0.25 },
+      { id: generateId(), afterYears: (prev[prev.length - 1]?.afterYears ?? 0) + 5, rateChangePercentInput: "0.25" },
     ]);
   };
 
-  const handleUpdateDetailedRateStep = (id: string, patch: Partial<Pick<RateIncreaseStep, "afterYears" | "rateChangePercent">>) => {
+  const handleUpdateDetailedRateStep = (
+    id: string,
+    patch: Partial<Pick<RateIncreaseStep, "afterYears" | "rateChangePercentInput">>,
+  ) => {
     setDetailedRateSteps((prev) => prev.map((step) => (step.id === id ? { ...step, ...patch } : step)));
   };
 
@@ -636,7 +692,7 @@ export default function FpSection({ property }: FpSectionProps) {
     .sort((a, b) => a.afterYears - b.afterYears)
     .map((step, index) => ({
       year: step.afterYears,
-      label: `${step.afterYears}年目 ${formatRateChangePercent(step.rateChangePercent)}`,
+      label: `${step.afterYears}年目 ${formatRateChangePercent(parseSignedDecimal(step.rateChangePercentInput))}`,
       position: (index % 2 === 0 ? "insideTopLeft" : "insideBottomLeft") as "insideTopLeft" | "insideBottomLeft",
     }));
 
@@ -740,7 +796,7 @@ export default function FpSection({ property }: FpSectionProps) {
 
           {!useDetailedRateSteps ? (
             <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <RateInput
+              <SignedDecimalInput
                 id="rateIncreaseAmount"
                 label={
                   <>
@@ -749,8 +805,8 @@ export default function FpSection({ property }: FpSectionProps) {
                     （%）
                   </>
                 }
-                value={rateIncreaseAmount}
-                onChange={setRateIncreaseAmount}
+                value={rateIncreaseAmountInput}
+                onChange={setRateIncreaseAmountInput}
               />
               <RateInput
                 id="rateIncreaseIntervalYears"
@@ -791,11 +847,13 @@ export default function FpSection({ property }: FpSectionProps) {
                     onChange={(next) => handleUpdateDetailedRateStep(step.id, { afterYears: next ?? 0 })}
                   />
                   <span className="text-sm text-ink/60">年目に</span>
-                  <CurrencyInput
+                  <input
                     id={`rate-step-amount-${step.id}`}
+                    type="text"
+                    inputMode="decimal"
                     className={COMPACT_INPUT_CLASS_NAME}
-                    value={step.rateChangePercent === 0 ? undefined : step.rateChangePercent}
-                    onChange={(next) => handleUpdateDetailedRateStep(step.id, { rateChangePercent: next ?? 0 })}
+                    value={step.rateChangePercentInput}
+                    onChange={(e) => handleUpdateDetailedRateStep(step.id, { rateChangePercentInput: e.target.value })}
                   />
                   <span className="text-sm text-ink/60">% 変化</span>
                   <button
@@ -823,7 +881,9 @@ export default function FpSection({ property }: FpSectionProps) {
               {stepsWithinTerm
                 .slice()
                 .sort((a, b) => a.afterYears - b.afterYears)
-                .map((step) => ` → ${step.afterYears}年目に${formatRateChangePercent(step.rateChangePercent)}`)
+                .map(
+                  (step) => ` → ${step.afterYears}年目に${formatRateChangePercent(parseSignedDecimal(step.rateChangePercentInput))}`,
+                )
                 .join("")}
             </p>
           )}
