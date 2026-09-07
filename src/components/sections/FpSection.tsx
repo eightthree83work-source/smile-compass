@@ -665,7 +665,6 @@ export default function FpSection({ property }: FpSectionProps) {
   const hasNegativeRateWarning = variableRateAnnual < 0 || rateChangeEvents.some((event) => event.newRateAnnual < 0);
 
   const fixedScenario = calculateAmortizedLoan(loanPrincipal, fixedRateAnnual, property.loanTermYears);
-  const variableStableScenario = calculateAmortizedLoan(loanPrincipal, variableRateAnnual, property.loanTermYears);
   const variableRisingSummary = summarizeMultiPhaseLoan(loanPrincipal, property.loanTermYears, variableRateAnnual, rateChangeEvents);
 
   // 固定金利 vs 変動金利グラフ用：年間返済額そのものの階段状の推移データ
@@ -705,19 +704,12 @@ export default function FpSection({ property }: FpSectionProps) {
       totalInterest: fixedScenario.totalInterest,
     },
     {
-      key: "variableStable",
-      label: "変動金利が現状維持",
-      monthlyPaymentLabel: formatYen(variableStableScenario.monthlyPayment),
-      totalRepayment: variableStableScenario.totalRepayment,
-      totalInterest: variableStableScenario.totalInterest,
-    },
-    {
       key: "variableRising",
       label: "変動金利が上昇",
       monthlyPaymentLabel:
         variableRisingSummary.phases.length > 0
           ? variableRisingSummary.phases.map((phase) => formatYen(phase.monthlyPayment)).join(" → ")
-          : formatYen(variableStableScenario.monthlyPayment),
+          : formatYen(0),
       totalRepayment: variableRisingSummary.totalRepayment,
       totalInterest: variableRisingSummary.totalInterest,
     },
