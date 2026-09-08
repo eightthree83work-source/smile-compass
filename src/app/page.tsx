@@ -5,7 +5,8 @@ import Header from "@/components/Header";
 import PropertyForm from "@/components/PropertyForm";
 import SavedPropertySelector from "@/components/SavedPropertySelector";
 import PropertyImageGallery from "@/components/PropertyImageGallery";
-import DiagnosisSummaryCard from "@/components/DiagnosisSummaryCard";
+import DiagnosisSummaryCard, { SaveComparisonPropertyResult } from "@/components/DiagnosisSummaryCard";
+import SavedPropertiesModal from "@/components/SavedPropertiesModal";
 import FpSection from "@/components/sections/FpSection";
 import LegalSection from "@/components/sections/LegalSection";
 import InspectionSection from "@/components/sections/InspectionSection";
@@ -17,6 +18,14 @@ import {
   loadSavedProperties,
   persistSavedProperties,
 } from "@/lib/savedProperties";
+import {
+  ComparisonSnapshot,
+  MAX_SAVED_PROPERTIES,
+  SavedComparisonProperty,
+  createSavedComparisonProperty,
+  loadSavedComparisonProperties,
+  persistSavedComparisonProperties,
+} from "@/lib/propertyComparison";
 import { deleteImagesForProperty } from "@/lib/imageStorage";
 import {
   FpAdvisorFaceIcon,
@@ -49,6 +58,10 @@ export default function Home() {
   const [savedProperties, setSavedProperties] = useState<SavedProperty[]>([]);
   const [activeTab, setActiveTab] = useState<TabId>("fp");
   const [isHydrated, setIsHydrated] = useState(false);
+
+  // 「物件を保存して複数比較する」機能用の保存済み物件一覧（上のsavedPropertiesとは別管理）
+  const [savedComparisonProperties, setSavedComparisonProperties] = useState<SavedComparisonProperty[]>([]);
+  const [showSavedPropertiesModal, setShowSavedPropertiesModal] = useState(false);
 
   // 不動産プロのサポートタブの周辺相場は、診断サマリーカードでも使うためpage側で保持する
   const [marketPricePerTsuboManYen, setMarketPricePerTsuboManYen] = useState(0);
@@ -84,6 +97,7 @@ export default function Home() {
     }
 
     setSavedProperties(loadSavedProperties());
+    setSavedComparisonProperties(loadSavedComparisonProperties());
     setIsHydrated(true);
   }, []);
 
@@ -207,9 +221,54 @@ export default function Home() {
     }
   };
 
+  // 診断サマリーカードの「この物件を保存する」から呼ばれる。上限に達している場合は保存せずに知らせる
+  const handleSaveComparisonProperty = (
+    nickname: string,
+    snapshot: ComparisonSnapshot,
+  ): SaveComparisonPropertyResult => {
+    if (savedComparisonProperties.length >= MAX_SAVED_PROPERTIES) {
+      return "limit-reached";
+    }
+    const saved = createSavedComparisonProperty(nickname, property, snapshot);
+    const next = [...savedComparisonProperties, saved];
+    setSavedComparisonProperties(next);
+    persistSavedComparisonProperties(next);
+    return "saved";
+  };
+
+  // 保存した物件一覧の「開く」。保存時点のスナップショットにあった周辺相場もあわせて復元する
+  const handleOpenComparisonProperty = (id: string) => {
+    const saved = savedComparisonProperties.find((s) => s.id === id);
+    if (!saved) return;
+    setProperty({ ...createDefaultProperty(), ...saved.property });
+    setCurrentPropertyId(null);
+    setMarketPricePerTsuboManYen(saved.snapshot.marketPricePerTsuboManYen);
+    lastAutoFetchedLocationRef.current = saved.property.location.trim();
+    setShowSavedPropertiesModal(false);
+  };
+
+  const handleDeleteComparisonProperty = (id: string) => {
+    const next = savedComparisonProperties.filter((saved) => saved.id !== id);
+    setSavedComparisonProperties(next);
+    persistSavedComparisonProperties(next);
+  };
+
   return (
     <div className="flex min-h-screen flex-col items-center bg-background font-sans text-ink">
-      <Header />
+      <Header
+        actions={
+          <button
+            type="button"
+            onClick={() => setShowSavedPropertiesModal(true)}
+            className="min-h-11 touch-manipulation rounded-md border border-ink/20 bg-white px-3 py-2 text-sm font-medium text-ink/75 shadow-sm active:bg-ink/5"
+          >
+            保存した物件
+            {savedComparisonProperties.length > 0 && (
+              <span className="ml-1.5 text-ink/45">({savedComparisonProperties.length})</span>
+            )}
+          </button>
+        }
+      />
       <main className="w-full max-w-3xl px-6 py-10">
         <h1 className="font-heading text-2xl text-ink">物件情報</h1>
 
@@ -262,7 +321,11 @@ export default function Home() {
           </button>
         </div>
 
-        <DiagnosisSummaryCard property={property} marketPricePerTsuboManYen={marketPricePerTsuboManYen} />
+        <DiagnosisSummaryCard
+          property={property}
+          marketPricePerTsuboManYen={marketPricePerTsuboManYen}
+          onSaveComparisonProperty={handleSaveComparisonProperty}
+        />
 
         <div className="mt-8 flex gap-1 overflow-x-auto border-b border-ink/10" role="tablist">
           {TABS.map((tab) => (
@@ -294,6 +357,15 @@ export default function Home() {
         {activeTab === "inspection" && <InspectionSection property={property} />}
         {activeTab === "fp" && <FpSection property={property} />}
       </main>
+
+      {showSavedPropertiesModal && (
+        <SavedPropertiesModal
+          properties={savedComparisonProperties}
+          onOpenProperty={handleOpenComparisonProperty}
+          onDeleteProperty={handleDeleteComparisonProperty}
+          onClose={() => setShowSavedPropertiesModal(false)}
+        />
+      )}
     </div>
   );
 }

@@ -9,6 +9,8 @@ import { getInspectionChecklist } from "@/lib/inspectionChecklist";
 import { truncateAddressToCityLevel } from "@/lib/address";
 import { VALUATION_JUDGMENT_LABELS, calculatePricePerTsuboManYen, judgeValuation } from "@/lib/valuation";
 import ShareResultCard from "@/components/ShareResultCard";
+import SavePropertyDialog from "@/components/SavePropertyDialog";
+import { ComparisonSnapshot } from "@/lib/propertyComparison";
 import {
   FpAdvisorFaceIcon,
   InspectorFaceIcon,
@@ -16,10 +18,14 @@ import {
   RealtorFaceIcon,
 } from "@/components/icons/AdvisorCharacterImages";
 
+export type SaveComparisonPropertyResult = "saved" | "limit-reached";
+
 interface DiagnosisSummaryCardProps {
   property: Property;
   /** 不動産プロのサポートタブで入力・取得された、周辺相場の坪単価（万円） */
   marketPricePerTsuboManYen: number;
+  /** 比較用の保存済み物件一覧に、現在の診断結果スナップショットを保存する */
+  onSaveComparisonProperty: (nickname: string, snapshot: ComparisonSnapshot) => SaveComparisonPropertyResult;
 }
 
 const yenFormatter = new Intl.NumberFormat("ja-JP", {
@@ -66,12 +72,18 @@ function ShareIcon({ className }: { className?: string }) {
   );
 }
 
-export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManYen }: DiagnosisSummaryCardProps) {
+export default function DiagnosisSummaryCard({
+  property,
+  marketPricePerTsuboManYen,
+  onSaveComparisonProperty,
+}: DiagnosisSummaryCardProps) {
   const shareCardRef = useRef<HTMLDivElement>(null);
   const [showFullAddress, setShowFullAddress] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [showTwitterFallback, setShowTwitterFallback] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   const hasEnoughData = property.price > 0 && property.floorAreaSqm > 0;
 
@@ -162,6 +174,26 @@ export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManY
     }
   };
 
+  const handleConfirmSave = (nickname: string) => {
+    const snapshot: ComparisonSnapshot = {
+      pricePerTsuboManYen: pricePerTsubo,
+      marketPricePerTsuboManYen,
+      diffPercent: valuationResult ? valuationResult.diffPercent : null,
+      judgment: valuationResult ? valuationResult.judgment : null,
+      monthlyPayment: repayment.monthlyPayment,
+      netLifetimeCost: lifetimeCost.netLifetimeCost,
+      legalChecklistCount: legalChecklist.length,
+      inspectionChecklistCount: inspectionChecklist.length,
+    };
+    const result = onSaveComparisonProperty(nickname, snapshot);
+    setShowSaveDialog(false);
+    setSaveMessage(
+      result === "limit-reached"
+        ? "保存できる件数の上限に達しました。「保存した物件」から不要な物件を削除してください。"
+        : "物件を保存しました。「保存した物件」から確認できます。",
+    );
+  };
+
   return (
     <div className="mt-8">
       <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 px-1 pb-2 text-sm">
@@ -176,6 +208,13 @@ export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManY
         </label>
         <button
           type="button"
+          onClick={() => setShowSaveDialog(true)}
+          className="flex min-h-12 touch-manipulation items-center gap-2 rounded-full border border-ink/20 bg-white px-5 py-3 text-base font-medium text-ink/75 shadow-sm active:bg-ink/5"
+        >
+          この物件を保存する
+        </button>
+        <button
+          type="button"
           onClick={handleShare}
           disabled={isGeneratingImage}
           className="flex min-h-12 touch-manipulation items-center gap-2 rounded-full bg-accent px-5 py-3 text-base font-bold text-white shadow-sm active:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
@@ -185,6 +224,16 @@ export default function DiagnosisSummaryCard({ property, marketPricePerTsuboManY
         </button>
       </div>
       {imageError && <p className="px-1 pb-2 text-right text-xs text-[#a12f2f]">{imageError}</p>}
+      {saveMessage && (
+        <p className="px-1 pb-2 text-right text-xs text-ink/60">{saveMessage}</p>
+      )}
+      {showSaveDialog && (
+        <SavePropertyDialog
+          defaultNickname={trimmedLocation || "無題の物件"}
+          onConfirm={handleConfirmSave}
+          onCancel={() => setShowSaveDialog(false)}
+        />
+      )}
       {showTwitterFallback && (
         <div className="flex flex-col items-end gap-1 px-1 pb-2">
           <a

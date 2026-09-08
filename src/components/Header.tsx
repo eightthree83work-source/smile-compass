@@ -1,4 +1,8 @@
-export default function Header() {
+interface HeaderProps {
+  actions?: React.ReactNode;
+}
+
+export default function Header({ actions }: HeaderProps) {
   return (
     <header className="w-full border-b border-ink/10">
       <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-6 py-5">
@@ -24,6 +28,7 @@ export default function Header() {
           <p className="text-sm text-ink/70">住まい探しに、笑顔のコンパスを。</p>
           <p className="text-xs text-ink/55">4人の専門家によるセルフ診断記録</p>
         </div>
+        {actions && <div className="ml-auto shrink-0">{actions}</div>}
       </div>
     </header>
   );
