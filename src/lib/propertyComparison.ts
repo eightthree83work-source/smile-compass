@@ -1,6 +1,9 @@
 import { generateId } from "./id";
-import { Property } from "./types";
-import { ValuationJudgment } from "./valuation";
+import { createDefaultProperty, Property } from "./types";
+import { calculatePricePerTsuboManYen, ValuationJudgment } from "./valuation";
+import { calculateLifetimeCostEstimate, calculateLoanRepayment } from "./calculations";
+import { getLegalChecklist } from "./legalChecklist";
+import { getInspectionChecklist } from "./inspectionChecklist";
 
 const STORAGE_KEY = "smile-compass-saved-properties";
 
@@ -73,4 +76,85 @@ export function createSavedComparisonProperty(
     property,
     snapshot,
   };
+}
+
+// ---------------------------------------------------------------------------
+// 旧「下書き切り替え」機能（home-compass:saved-properties）からの移行
+// ---------------------------------------------------------------------------
+
+const LEGACY_STORAGE_KEY = "home-compass:saved-properties";
+const LEGACY_MIGRATION_FLAG_KEY = "smile-compass:legacy-saved-properties-migrated";
+
+interface LegacySavedProperty {
+  id: string;
+  name: string;
+  property: Property;
+  savedAt: string;
+}
+
+/**
+ * 旧機能には周辺相場・診断結果の保存がなかったため、移行時点のPropertyから
+ * 計算できる範囲でスナップショットを作る（周辺相場は未取得＝0、判定はnull扱い）。
+ */
+function buildSnapshotForMigratedProperty(property: Property): ComparisonSnapshot {
+  const repayment = calculateLoanRepayment(property);
+  const lifetimeCost = calculateLifetimeCostEstimate(property);
+  return {
+    pricePerTsuboManYen: calculatePricePerTsuboManYen(property),
+    marketPricePerTsuboManYen: 0,
+    diffPercent: null,
+    judgment: null,
+    monthlyPayment: repayment.monthlyPayment,
+    netLifetimeCost: lifetimeCost.netLifetimeCost,
+    legalChecklistCount: getLegalChecklist(property).length,
+    inspectionChecklistCount: getInspectionChecklist(property).length,
+  };
+}
+
+/**
+ * 旧機能のlocalStorageデータを新しいデータ構造へ1度だけ移行する。
+ * 画像メモ（IndexedDB）は旧SavedProperty.idをキーに紐づいているため、
+ * 同じidを維持したまま移行することで画像の再紐付けを不要にしている。
+ * 移行が済んだら旧キーを削除し、フラグを立てて二重実行を防ぐ。
+ * 失敗した場合は何もせず（フラグも立てず）、既存データはどちらのキーにも残したままにする。
+ */
+export function migrateLegacySavedProperties(): void {
+  try {
+    if (window.localStorage.getItem(LEGACY_MIGRATION_FLAG_KEY)) return;
+
+    const raw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!raw) {
+      window.localStorage.setItem(LEGACY_MIGRATION_FLAG_KEY, "1");
+      return;
+    }
+
+    const parsed: unknown = JSON.parse(raw);
+    const legacyList = Array.isArray(parsed) ? (parsed as LegacySavedProperty[]) : [];
+
+    const current = loadSavedComparisonProperties();
+    const currentIds = new Set(current.map((p) => p.id));
+
+    const migrated: SavedComparisonProperty[] = legacyList
+      .filter(
+        (legacy): legacy is LegacySavedProperty =>
+          !!legacy && typeof legacy.id === "string" && !currentIds.has(legacy.id),
+      )
+      .map((legacy) => {
+        const mergedProperty = { ...createDefaultProperty(), ...legacy.property };
+        return {
+          id: legacy.id,
+          nickname: legacy.name?.trim() || "無題の物件",
+          savedAt: legacy.savedAt ?? new Date().toISOString(),
+          property: mergedProperty,
+          snapshot: buildSnapshotForMigratedProperty(mergedProperty),
+        };
+      });
+
+    const next = [...current, ...migrated];
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+    window.localStorage.setItem(LEGACY_MIGRATION_FLAG_KEY, "1");
+  } catch {
+    // 移行に失敗した場合はフラグを立てず、既存データもそのまま残す（次回起動時に再試行される）
+  }
 }

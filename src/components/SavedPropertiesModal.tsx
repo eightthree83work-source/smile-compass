@@ -4,6 +4,7 @@ import { useState } from "react";
 import { SavedComparisonProperty } from "@/lib/propertyComparison";
 import { VALUATION_JUDGMENT_LABELS } from "@/lib/valuation";
 import PropertyComparisonTable from "@/components/PropertyComparisonTable";
+import PropertyImageGallery from "@/components/PropertyImageGallery";
 
 interface SavedPropertiesModalProps {
   properties: SavedComparisonProperty[];
@@ -51,6 +52,7 @@ export default function SavedPropertiesModal({
 }: SavedPropertiesModalProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showComparison, setShowComparison] = useState(false);
+  const [expandedImageGalleryId, setExpandedImageGalleryId] = useState<string | null>(null);
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -140,7 +142,17 @@ export default function SavedPropertiesModal({
                       >
                         削除
                       </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedImageGalleryId((prev) => (prev === saved.id ? null : saved.id))
+                        }
+                        className="min-h-9 touch-manipulation rounded-md border border-ink/20 px-3 py-1.5 text-sm font-medium text-ink/60 active:bg-ink/5"
+                      >
+                        {expandedImageGalleryId === saved.id ? "画像メモを閉じる" : "画像メモ"}
+                      </button>
                     </div>
+                    {expandedImageGalleryId === saved.id && <PropertyImageGallery savedPropertyId={saved.id} />}
                   </div>
                 </div>
               ))}

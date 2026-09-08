@@ -3,8 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import Header from "@/components/Header";
 import PropertyForm from "@/components/PropertyForm";
-import SavedPropertySelector from "@/components/SavedPropertySelector";
-import PropertyImageGallery from "@/components/PropertyImageGallery";
 import DiagnosisSummaryCard, { SaveComparisonPropertyResult } from "@/components/DiagnosisSummaryCard";
 import SavedPropertiesModal from "@/components/SavedPropertiesModal";
 import FpSection from "@/components/sections/FpSection";
@@ -13,17 +11,12 @@ import InspectionSection from "@/components/sections/InspectionSection";
 import ValuationSection from "@/components/sections/ValuationSection";
 import { createDefaultProperty, Property } from "@/lib/types";
 import {
-  SavedProperty,
-  createSavedProperty,
-  loadSavedProperties,
-  persistSavedProperties,
-} from "@/lib/savedProperties";
-import {
   ComparisonSnapshot,
   MAX_SAVED_PROPERTIES,
   SavedComparisonProperty,
   createSavedComparisonProperty,
   loadSavedComparisonProperties,
+  migrateLegacySavedProperties,
   persistSavedComparisonProperties,
 } from "@/lib/propertyComparison";
 import { deleteImagesForProperty } from "@/lib/imageStorage";
@@ -54,12 +47,11 @@ interface StoredDraft {
 
 export default function Home() {
   const [property, setProperty] = useState<Property>(createDefaultProperty());
-  const [currentPropertyId, setCurrentPropertyId] = useState<string | null>(null);
-  const [savedProperties, setSavedProperties] = useState<SavedProperty[]>([]);
+  // 「保存した物件」一覧から開いて編集中の物件のID。新規（未保存）の場合はnull
+  const [currentSavedPropertyId, setCurrentSavedPropertyId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("fp");
   const [isHydrated, setIsHydrated] = useState(false);
 
-  // 「物件を保存して複数比較する」機能用の保存済み物件一覧（上のsavedPropertiesとは別管理）
   const [savedComparisonProperties, setSavedComparisonProperties] = useState<SavedComparisonProperty[]>([]);
   const [showSavedPropertiesModal, setShowSavedPropertiesModal] = useState(false);
 
@@ -84,7 +76,7 @@ export default function Home() {
             // eslint-disable-next-line react-hooks/set-state-in-effect
             setProperty({ ...createDefaultProperty(), ...parsedRecord.property });
             if (typeof parsedRecord.currentPropertyId === "string") {
-              setCurrentPropertyId(parsedRecord.currentPropertyId);
+              setCurrentSavedPropertyId(parsedRecord.currentPropertyId);
             }
           } else {
             // 旧形式（Propertyそのもの）との後方互換
@@ -96,7 +88,8 @@ export default function Home() {
       // 保存データが壊れている場合は既定値のまま利用する
     }
 
-    setSavedProperties(loadSavedProperties());
+    // 旧「下書き切り替え」機能のデータが残っていれば、新しい「保存した物件」機能に1度だけ移行する
+    migrateLegacySavedProperties();
     setSavedComparisonProperties(loadSavedComparisonProperties());
     setIsHydrated(true);
   }, []);
@@ -104,9 +97,9 @@ export default function Home() {
   // 編集中の内容が変わるたびに自動保存する（復元処理の完了後のみ）
   useEffect(() => {
     if (!isHydrated) return;
-    const draft: StoredDraft = { property, currentPropertyId };
+    const draft: StoredDraft = { property, currentPropertyId: currentSavedPropertyId };
     window.localStorage.setItem(CURRENT_PROPERTY_STORAGE_KEY, JSON.stringify(draft));
-  }, [property, currentPropertyId, isHydrated]);
+  }, [property, currentSavedPropertyId, isHydrated]);
 
   // 所在地の入力が止まってから800ms後に、周辺相場の坪単価を自動取得する。
   // 同じ住所に対しては（marketPricePerTsuboManYenが既に入っている限り）再取得しない簡易キャッシュ付き。
@@ -151,81 +144,30 @@ export default function Home() {
     if (!window.confirm("入力内容をリセットします。よろしいですか？")) return;
     window.localStorage.removeItem(CURRENT_PROPERTY_STORAGE_KEY);
     setProperty(createDefaultProperty());
-    setCurrentPropertyId(null);
+    setCurrentSavedPropertyId(null);
     setMarketPricePerTsuboManYen(0);
   };
 
-  // 現在読み込み中のIDが既存の保存データと一致すれば上書き、そうでなければ新規保存する
-  const handleSaveProperty = () => {
-    if (currentPropertyId) {
-      const existingIndex = savedProperties.findIndex((saved) => saved.id === currentPropertyId);
-      if (existingIndex !== -1) {
-        const next = savedProperties.map((saved, index) =>
-          index === existingIndex ? { ...saved, property, savedAt: new Date().toISOString() } : saved,
-        );
-        setSavedProperties(next);
-        persistSavedProperties(next);
-        return;
-      }
-    }
-
-    const name = window.prompt("物件の名前を入力してください（例：物件A、荒川区の家）")?.trim();
-    if (!name) return;
-
-    const saved = createSavedProperty(name, property);
-    const next = [...savedProperties, saved];
-    setSavedProperties(next);
-    persistSavedProperties(next);
-    setCurrentPropertyId(saved.id);
-  };
-
-  // 既存物件を上書きせず、別データとして複製保存する
-  const handleSaveAsNewProperty = () => {
-    const name = window.prompt("複製として保存する名前を入力してください")?.trim();
-    if (!name) return;
-
-    const saved = createSavedProperty(name, property);
-    const next = [...savedProperties, saved];
-    setSavedProperties(next);
-    persistSavedProperties(next);
-    setCurrentPropertyId(saved.id);
-  };
-
-  const handleSelectSavedProperty = (id: string | null) => {
-    if (id === null) {
-      setProperty(createDefaultProperty());
-      setCurrentPropertyId(null);
-      setMarketPricePerTsuboManYen(0);
-      return;
-    }
-
-    const saved = savedProperties.find((s) => s.id === id);
-    if (!saved) return;
-    setProperty({ ...createDefaultProperty(), ...saved.property });
-    setCurrentPropertyId(saved.id);
-    setMarketPricePerTsuboManYen(0);
-  };
-
-  const handleDeleteSavedProperty = (id: string) => {
-    if (!window.confirm("この保存済み物件を削除します。よろしいですか？")) return;
-    const next = savedProperties.filter((saved) => saved.id !== id);
-    setSavedProperties(next);
-    persistSavedProperties(next);
-    // 物件に紐づく画像メモ（IndexedDB）も合わせて削除する。失敗しても物件一覧の削除自体は継続する
-    deleteImagesForProperty(id).catch(() => {});
-
-    if (currentPropertyId === id) {
-      setProperty(createDefaultProperty());
-      setCurrentPropertyId(null);
-      setMarketPricePerTsuboManYen(0);
-    }
-  };
-
-  // 診断サマリーカードの「この物件を保存する」から呼ばれる。上限に達している場合は保存せずに知らせる
+  // 診断サマリーカードの「この物件を保存する」から呼ばれる。
+  // 「保存した物件」一覧から開いて編集中の物件があれば上書き、なければ新規保存する（上限チェック付き）
   const handleSaveComparisonProperty = (
     nickname: string,
     snapshot: ComparisonSnapshot,
   ): SaveComparisonPropertyResult => {
+    if (currentSavedPropertyId) {
+      const existingIndex = savedComparisonProperties.findIndex((saved) => saved.id === currentSavedPropertyId);
+      if (existingIndex !== -1) {
+        const next = savedComparisonProperties.map((saved, index) =>
+          index === existingIndex
+            ? { ...saved, nickname, property, snapshot, savedAt: new Date().toISOString() }
+            : saved,
+        );
+        setSavedComparisonProperties(next);
+        persistSavedComparisonProperties(next);
+        return "saved";
+      }
+    }
+
     if (savedComparisonProperties.length >= MAX_SAVED_PROPERTIES) {
       return "limit-reached";
     }
@@ -233,6 +175,7 @@ export default function Home() {
     const next = [...savedComparisonProperties, saved];
     setSavedComparisonProperties(next);
     persistSavedComparisonProperties(next);
+    setCurrentSavedPropertyId(saved.id);
     return "saved";
   };
 
@@ -241,7 +184,7 @@ export default function Home() {
     const saved = savedComparisonProperties.find((s) => s.id === id);
     if (!saved) return;
     setProperty({ ...createDefaultProperty(), ...saved.property });
-    setCurrentPropertyId(null);
+    setCurrentSavedPropertyId(saved.id);
     setMarketPricePerTsuboManYen(saved.snapshot.marketPricePerTsuboManYen);
     lastAutoFetchedLocationRef.current = saved.property.location.trim();
     setShowSavedPropertiesModal(false);
@@ -251,6 +194,14 @@ export default function Home() {
     const next = savedComparisonProperties.filter((saved) => saved.id !== id);
     setSavedComparisonProperties(next);
     persistSavedComparisonProperties(next);
+    // 物件に紐づく画像メモ（IndexedDB）も合わせて削除する。失敗しても物件一覧の削除自体は継続する
+    deleteImagesForProperty(id).catch(() => {});
+
+    if (currentSavedPropertyId === id) {
+      setProperty(createDefaultProperty());
+      setCurrentSavedPropertyId(null);
+      setMarketPricePerTsuboManYen(0);
+    }
   };
 
   return (
@@ -272,46 +223,17 @@ export default function Home() {
       <main className="w-full max-w-3xl px-6 py-10">
         <h1 className="font-heading text-2xl text-ink">物件情報</h1>
 
-        <div className="mt-6">
-          <SavedPropertySelector
-            savedProperties={savedProperties}
-            currentPropertyId={currentPropertyId}
-            onSelect={handleSelectSavedProperty}
-            onDelete={handleDeleteSavedProperty}
-          />
-        </div>
-
-        {currentPropertyId ? (
-          <div className="mt-4 rounded-lg border border-ink/15 bg-white p-4">
-            <PropertyImageGallery savedPropertyId={currentPropertyId} />
-          </div>
-        ) : (
-          <p className="mt-4 text-sm text-ink/50">画像メモを追加するには、先にこの物件を保存してください。</p>
+        {currentSavedPropertyId && (
+          <p className="mt-4 text-sm text-ink/55">
+            「保存した物件」から編集中です。「この物件を保存する」で上書き保存できます。
+          </p>
         )}
 
         <div className="mt-6">
           <PropertyForm value={property} onChange={setProperty} />
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={handleSaveProperty}
-              className="min-h-11 touch-manipulation rounded-md bg-accent px-4 py-2.5 text-sm font-medium text-white active:opacity-80"
-            >
-              {currentPropertyId ? "上書き保存" : "この物件を保存"}
-            </button>
-            {currentPropertyId && (
-              <button
-                type="button"
-                onClick={handleSaveAsNewProperty}
-                className="min-h-11 touch-manipulation rounded-md border border-ink/20 px-3 py-2.5 text-sm font-medium text-ink/75 active:bg-ink/5"
-              >
-                別データとして保存
-              </button>
-            )}
-          </div>
+        <div className="mt-4 flex justify-end">
           <button
             type="button"
             onClick={handleReset}
@@ -325,6 +247,7 @@ export default function Home() {
           property={property}
           marketPricePerTsuboManYen={marketPricePerTsuboManYen}
           onSaveComparisonProperty={handleSaveComparisonProperty}
+          currentNickname={savedComparisonProperties.find((s) => s.id === currentSavedPropertyId)?.nickname}
         />
 
         <div className="mt-8 flex gap-1 overflow-x-auto border-b border-ink/10" role="tablist">

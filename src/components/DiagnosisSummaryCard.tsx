@@ -26,6 +26,8 @@ interface DiagnosisSummaryCardProps {
   marketPricePerTsuboManYen: number;
   /** 比較用の保存済み物件一覧に、現在の診断結果スナップショットを保存する */
   onSaveComparisonProperty: (nickname: string, snapshot: ComparisonSnapshot) => SaveComparisonPropertyResult;
+  /** 保存した物件一覧から開いて編集中の場合、そのニックネーム（再保存ダイアログの初期値に使う） */
+  currentNickname?: string | null;
 }
 
 const yenFormatter = new Intl.NumberFormat("ja-JP", {
@@ -76,6 +78,7 @@ export default function DiagnosisSummaryCard({
   property,
   marketPricePerTsuboManYen,
   onSaveComparisonProperty,
+  currentNickname,
 }: DiagnosisSummaryCardProps) {
   const shareCardRef = useRef<HTMLDivElement>(null);
   const [showFullAddress, setShowFullAddress] = useState(false);
@@ -229,7 +232,7 @@ export default function DiagnosisSummaryCard({
       )}
       {showSaveDialog && (
         <SavePropertyDialog
-          defaultNickname={trimmedLocation || "無題の物件"}
+          defaultNickname={currentNickname || trimmedLocation || "無題の物件"}
           onConfirm={handleConfirmSave}
           onCancel={() => setShowSaveDialog(false)}
         />
