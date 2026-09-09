@@ -3,6 +3,7 @@
 import { useState } from "react";
 import CurrencyInput from "@/components/CurrencyInput";
 import { INPUT_CLASS_NAME } from "@/components/PropertyForm";
+import PropertyEnvironmentMap from "@/components/PropertyEnvironmentMap";
 import { RealtorCharacterImage } from "@/components/icons/AdvisorCharacterImages";
 import { getRealtorChecklist } from "@/lib/realtorChecklist";
 import { Property } from "@/lib/types";
@@ -180,6 +181,8 @@ export default function ValuationSection({
           </div>
         )}
       </div>
+
+      <PropertyEnvironmentMap location={property.location} />
 
       <div>
         <h3 className="font-heading text-lg text-ink">建物価格の目安を試算</h3>
