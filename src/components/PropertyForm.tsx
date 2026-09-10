@@ -35,7 +35,7 @@ const SEISMIC_CERTIFICATE_TOOLTIP_TEXT =
 const ENERGY_EFFICIENCY_CERTIFICATE_TOOLTIP_TEXT =
   "住宅ローン控除の借入限度額に関わります。認定長期優良住宅・認定低炭素住宅・ZEH水準省エネ住宅・省エネ基準適合住宅などの認定がある場合、借入限度額が2,000万円→3,000万円に上がり、控除額が増える可能性があります（控除率0.7%・控除期間10年は変わりません）。";
 
-type RequiredNumberKey = "price" | "downPayment" | "interestRateAnnual" | "loanTermYears" | "householdIncomeManYen";
+type RequiredNumberKey = "price" | "interestRateAnnual" | "loanTermYears" | "householdIncomeManYen";
 
 interface PropertyFormProps {
   value: Property;
@@ -48,6 +48,7 @@ export default function PropertyForm({ value, onChange }: PropertyFormProps) {
   };
 
   // 必須の数値項目用。0は「未入力」と同じ扱いにして、空にした時に表示が空欄のまま保てるようにする
+  // （頭金は0円＝フルローンが実在する有効な値のため、この「0=未入力」扱いの対象からは除外している）
   const requiredNumberProps = (key: RequiredNumberKey) => ({
     value: value[key] === 0 ? undefined : value[key],
     onChange: (next: number | undefined) => updateField(key, next ?? 0),
@@ -66,7 +67,13 @@ export default function PropertyForm({ value, onChange }: PropertyFormProps) {
         <label htmlFor="downPayment" className={LABEL_CLASS_NAME}>
           頭金（円）
         </label>
-        <CurrencyInput id="downPayment" className={INPUT_CLASS_NAME} {...requiredNumberProps("downPayment")} />
+        {/* 0円（フルローン）は有効な値として扱うため、他の必須項目と違い「0=未入力」変換はしない */}
+        <CurrencyInput
+          id="downPayment"
+          className={INPUT_CLASS_NAME}
+          value={value.downPayment}
+          onChange={(next) => updateField("downPayment", next ?? 0)}
+        />
       </div>
 
       <div>
