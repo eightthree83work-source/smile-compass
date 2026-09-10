@@ -5,35 +5,20 @@ import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { NearestStation } from "@/lib/nearestStation";
+import { HAZARD_LABELS, HAZARD_TILE_TEMPLATES, HazardCategory } from "@/lib/hazardTiles";
 
 interface HazardLayerDef {
-  id: string;
+  id: HazardCategory;
   label: string;
   /** 1つのトグルで複数タイルを重ねる場合があるため配列にする（例：土砂災害警戒区域） */
-  tileUrls: string[];
+  tileUrls: readonly string[];
 }
 
-const HAZARD_LAYERS: HazardLayerDef[] = [
-  {
-    id: "flood",
-    label: "洪水浸水想定区域（想定最大規模）",
-    tileUrls: ["https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png"],
-  },
-  {
-    id: "sediment",
-    label: "土砂災害警戒区域",
-    tileUrls: [
-      "https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki/{z}/{x}/{y}.png",
-      "https://disaportaldata.gsi.go.jp/raster/05_kyukeishakeikaikuiki/{z}/{x}/{y}.png",
-      "https://disaportaldata.gsi.go.jp/raster/05_jisuberikeikaikuiki/{z}/{x}/{y}.png",
-    ],
-  },
-  {
-    id: "tsunami",
-    label: "津波浸水想定",
-    tileUrls: ["https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png"],
-  },
-];
+const HAZARD_LAYERS: HazardLayerDef[] = (Object.keys(HAZARD_TILE_TEMPLATES) as HazardCategory[]).map((id) => ({
+  id,
+  label: HAZARD_LABELS[id],
+  tileUrls: HAZARD_TILE_TEMPLATES[id],
+}));
 
 const ACCENT_COLOR = "#e8654a";
 const INK_COLOR = "#1a2420";

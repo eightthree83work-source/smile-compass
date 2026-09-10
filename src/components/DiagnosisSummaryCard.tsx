@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import { Property } from "@/lib/types";
-import { calculateLifetimeCostEstimate, calculateLoanRepayment } from "@/lib/calculations";
+import { calculateLifetimeCostEstimate, calculateLoanRepayment, simulateMortgageDeduction } from "@/lib/calculations";
 import { getLegalChecklist } from "@/lib/legalChecklist";
 import { getInspectionChecklist } from "@/lib/inspectionChecklist";
 import { truncateAddressToCityLevel } from "@/lib/address";
@@ -11,6 +11,9 @@ import { VALUATION_JUDGMENT_LABELS, calculatePricePerTsuboManYen, judgeValuation
 import ShareResultCard from "@/components/ShareResultCard";
 import SavePropertyDialog from "@/components/SavePropertyDialog";
 import { ComparisonSnapshot } from "@/lib/propertyComparison";
+import { geocodeAddress } from "@/lib/geocoding";
+import { checkHazardAtPoint } from "@/lib/hazardCheck";
+import { ShareSummary, encodeShareSummary } from "@/lib/shareSummary";
 import {
   FpAdvisorFaceIcon,
   InspectorFaceIcon,
@@ -54,6 +57,53 @@ function buildTwitterIntentUrl(): string {
   return `https://twitter.com/intent/tweet?${params.toString()}`;
 }
 
+function buildTwitterIntentUrlForLink(shareLink: string): string {
+  const params = new URLSearchParams({ text: SHARE_TEXT, url: shareLink });
+  return `https://twitter.com/intent/tweet?${params.toString()}`;
+}
+
+function buildLineShareUrl(shareLink: string): string {
+  const params = new URLSearchParams({ url: shareLink });
+  return `https://social-plugins.line.me/lineit/share?${params.toString()}`;
+}
+
+/** 「X」を表すシンプルなロゴアイコン */
+function XIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M18.9 2h3.4l-7.5 8.6L23.6 22h-6.9l-5.4-7-6.2 7H1.6l8-9.2L1 2h7l4.9 6.4L18.9 2Zm-1.2 18h1.9L7.4 3.9H5.3L17.7 20Z" />
+    </svg>
+  );
+}
+
+/** LINEのシンプルな吹き出しアイコン */
+function LineIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M12 2C6.48 2 2 5.69 2 10.24c0 4.08 3.56 7.5 8.37 8.14.33.07.77.22.88.5.1.26.07.66.03.92l-.14.86c-.04.26-.2 1 .88.55 1.08-.46 5.82-3.43 7.94-5.87C21.42 13.6 22 12 22 10.24 22 5.69 17.52 2 12 2Z" />
+    </svg>
+  );
+}
+
+/** クリップボード/リンクを表すシンプルなアイコン */
+function LinkIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L11.5 4.5" />
+      <path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07L12.5 19.5" />
+    </svg>
+  );
+}
+
 /** 「共有」を表す一般的なアイコン（箱から矢印が上に飛び出す形） */
 function ShareIcon({ className }: { className?: string }) {
   return (
@@ -87,6 +137,13 @@ export default function DiagnosisSummaryCard({
   const [showTwitterFallback, setShowTwitterFallback] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  // SNSシェア用リンク（金額はデフォルト非公開）。トグルを変更したら、リンクは作り直しが必要になる
+  const [showAmountsInShare, setShowAmountsInShare] = useState(false);
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [isBuildingShareLink, setIsBuildingShareLink] = useState(false);
+  const [shareLinkError, setShareLinkError] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const hasEnoughData = property.price > 0 && property.floorAreaSqm > 0;
 
@@ -122,6 +179,77 @@ export default function DiagnosisSummaryCard({
 
   const today = new Date();
   const issuedDate = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
+
+  // シェアカード・OGP画像用の所在地表示は、末尾の「（詳細は非公開）」を付けずすっきりさせる
+  const shareLocationLabel = !trimmedLocation
+    ? "所在地非公開"
+    : showFullAddress
+      ? trimmedLocation
+      : (cityLevelLocation ?? "所在地非公開");
+
+  const mortgageDeduction = simulateMortgageDeduction(property);
+
+  const handleBuildShareLink = async () => {
+    if (isBuildingShareLink) return;
+    setIsBuildingShareLink(true);
+    setShareLinkError(null);
+    setLinkCopied(false);
+
+    // ハザード有無は、所在地をジオコーディングできた場合のみ簡易判定する（失敗時はunknown扱い）
+    let hazard: Awaited<ReturnType<typeof checkHazardAtPoint>> | null = null;
+    if (trimmedLocation) {
+      try {
+        const geocoded = await geocodeAddress(trimmedLocation);
+        if (geocoded) {
+          hazard = await checkHazardAtPoint(geocoded.lat, geocoded.lon);
+        }
+      } catch {
+        hazard = null;
+      }
+    }
+
+    const summary: ShareSummary = {
+      v: 1,
+      loc: shareLocationLabel,
+      date: issuedDate,
+      judgment: valuationResult ? valuationResult.judgment : null,
+      showAmounts: showAmountsInShare,
+      ...(showAmountsInShare
+        ? {
+            pricePerTsubo: pricePerTsubo ?? undefined,
+            marketPricePerTsubo: marketPricePerTsuboManYen > 0 ? marketPricePerTsuboManYen : undefined,
+            monthlyPayment: repayment.monthlyPayment,
+            netLifetimeCost: lifetimeCost.netLifetimeCost,
+            loanDeductionTotal: mortgageDeduction.totalDeduction,
+          }
+        : {}),
+      legalCount: legalChecklist.length,
+      inspectionCount: inspectionChecklist.length,
+      hazardFlood: hazard?.flood ?? "unknown",
+      hazardSediment: hazard?.sediment ?? "unknown",
+      hazardTsunami: hazard?.tsunami ?? "unknown",
+    };
+
+    try {
+      const code = encodeShareSummary(summary);
+      setShareLink(`${window.location.origin}/share?d=${code}`);
+    } catch {
+      setShareLinkError("シェアリンクの作成に失敗しました。もう一度お試しください。");
+    } finally {
+      setIsBuildingShareLink(false);
+    }
+  };
+
+  const handleCopyShareLink = async () => {
+    if (!shareLink) return;
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2500);
+    } catch {
+      setShareLinkError("コピーに失敗しました。リンクを選択してコピーしてください。");
+    }
+  };
 
   const handleShare = async () => {
     if (!shareCardRef.current || isGeneratingImage) return;
@@ -250,6 +378,83 @@ export default function DiagnosisSummaryCard({
           <p className="text-xs text-ink/50">ダウンロードした画像を投稿画面に添付してください</p>
         </div>
       )}
+
+      <div className="mb-6 rounded-lg border border-accent/25 bg-white px-5 py-5 sm:px-7 sm:py-6">
+        <div className="flex items-center gap-2">
+          <LinkIcon className="h-5 w-5 shrink-0 text-accent" />
+          <h3 className="font-heading text-lg text-ink">SNSでシェア</h3>
+        </div>
+        <p className="mt-1 text-sm text-ink/55">
+          物件のカルテをリンクでシェアできます。X・LINEに貼ると、OGP画像とあわせて表示されます。
+        </p>
+
+        <label className="mt-3 flex items-center gap-2 text-sm text-ink/65">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-ink/25 text-accent focus:ring-accent"
+            checked={showAmountsInShare}
+            onChange={(e) => {
+              setShowAmountsInShare(e.target.checked);
+              setShareLink(null);
+            }}
+          />
+          金額を表示する（坪単価・月々返済額・生涯コスト・住宅ローン控除額）
+        </label>
+        <p className="mt-1 text-xs text-ink/45">デフォルトは非公開です。世帯年収はこのシェア機能では送信されません。</p>
+
+        {!shareLink ? (
+          <button
+            type="button"
+            onClick={handleBuildShareLink}
+            disabled={isBuildingShareLink}
+            className="mt-3 flex min-h-11 touch-manipulation items-center gap-2 rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-white shadow-sm active:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <LinkIcon className="h-4 w-4 shrink-0" />
+            {isBuildingShareLink ? "作成中..." : "シェアリンクを作成"}
+          </button>
+        ) : (
+          <div className="mt-3 space-y-2">
+            <div className="flex flex-wrap gap-2">
+              <a
+                href={buildTwitterIntentUrlForLink(shareLink)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex min-h-11 touch-manipulation items-center gap-2 rounded-full bg-ink px-4 py-2.5 text-sm font-bold text-white active:opacity-80"
+              >
+                <XIcon className="h-4 w-4 shrink-0" />
+                Xでシェア
+              </a>
+              <a
+                href={buildLineShareUrl(shareLink)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex min-h-11 touch-manipulation items-center gap-2 rounded-full bg-[#06C755] px-4 py-2.5 text-sm font-bold text-white active:opacity-80"
+              >
+                <LineIcon className="h-4 w-4 shrink-0" />
+                LINEでシェア
+              </a>
+              <button
+                type="button"
+                onClick={handleCopyShareLink}
+                className="flex min-h-11 touch-manipulation items-center gap-2 rounded-full border border-ink/20 bg-white px-4 py-2.5 text-sm font-medium text-ink/75 active:bg-ink/5"
+              >
+                <LinkIcon className="h-4 w-4 shrink-0" />
+                {linkCopied ? "コピーしました" : "URLをコピー"}
+              </button>
+            </div>
+            <p className="break-all text-xs text-ink/45">{shareLink}</p>
+            <button
+              type="button"
+              onClick={handleBuildShareLink}
+              disabled={isBuildingShareLink}
+              className="text-xs font-medium text-ink/50 underline active:text-ink/70"
+            >
+              作り直す
+            </button>
+          </div>
+        )}
+        {shareLinkError && <p className="mt-2 text-xs text-[#a12f2f]">{shareLinkError}</p>}
+      </div>
 
       <div className="rounded-lg border border-ink/15 bg-white px-6 py-6 sm:px-10 sm:py-8">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-ink/10 pb-4">
