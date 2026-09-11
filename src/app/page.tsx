@@ -278,7 +278,7 @@ export default function Home() {
         )}
         {activeTab === "legal" && <LegalSection property={property} />}
         {activeTab === "inspection" && <InspectionSection property={property} />}
-        {activeTab === "fp" && <FpSection property={property} />}
+        {activeTab === "fp" && <FpSection property={property} onChange={setProperty} />}
       </main>
 
       {showSavedPropertiesModal && (

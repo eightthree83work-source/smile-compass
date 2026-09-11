@@ -21,7 +21,7 @@ import CurrencyInput from "@/components/CurrencyInput";
 import { INPUT_CLASS_NAME } from "@/components/PropertyForm";
 import { FpAdvisorCharacterImage, FpAdvisorFaceIcon } from "@/components/icons/AdvisorCharacterImages";
 import { generateId } from "@/lib/id";
-import { Property } from "@/lib/types";
+import { DEFAULT_INTEREST_RATE_ANNUAL, DEFAULT_LOAN_TERM_YEARS, Property } from "@/lib/types";
 import {
   AmortizationYearPoint,
   LifetimeExpenseYearPoint,
@@ -40,6 +40,7 @@ import {
 
 interface FpSectionProps {
   property: Property;
+  onChange: (next: Property) => void;
 }
 
 const MLIT_HOUSING_SUPPORT_SEARCH_URL =
@@ -579,7 +580,7 @@ function RateComparisonChart({ data, switchMarkers }: { data: RateComparisonPoin
   );
 }
 
-export default function FpSection({ property }: FpSectionProps) {
+export default function FpSection({ property, onChange }: FpSectionProps) {
   const loanPrincipal = getLoanPrincipal(property);
   const repayment = calculateLoanRepayment(property);
   const repaymentSchedule = generateAmortizationSchedule(loanPrincipal, property.interestRateAnnual, property.loanTermYears);
@@ -731,7 +732,35 @@ export default function FpSection({ property }: FpSectionProps) {
 
       <div>
         <h3 className="font-heading text-lg text-ink">返済計画</h3>
-        <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <p className="mt-1 text-sm text-ink/55">
+          金利・返済期間は物件そのものの情報ではなくローンの組み方に関する条件のため、ここで調整します。未調整の場合は一般的な水準の既定値（金利{DEFAULT_INTEREST_RATE_ANNUAL}%・返済期間{DEFAULT_LOAN_TERM_YEARS}
+          年）を使用します。
+        </p>
+        <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label htmlFor="baseInterestRateAnnual" className="block text-sm font-medium text-ink/80">
+              金利（年率 %）
+            </label>
+            <CurrencyInput
+              id="baseInterestRateAnnual"
+              className={INPUT_CLASS_NAME}
+              value={property.interestRateAnnual}
+              onChange={(next) => onChange({ ...property, interestRateAnnual: next ?? DEFAULT_INTEREST_RATE_ANNUAL })}
+            />
+          </div>
+          <div>
+            <label htmlFor="baseLoanTermYears" className="block text-sm font-medium text-ink/80">
+              返済期間（年）
+            </label>
+            <CurrencyInput
+              id="baseLoanTermYears"
+              className={INPUT_CLASS_NAME}
+              value={property.loanTermYears}
+              onChange={(next) => onChange({ ...property, loanTermYears: next ?? DEFAULT_LOAN_TERM_YEARS })}
+            />
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <StatTile label="月々返済額" value={formatYen(repayment.monthlyPayment)} />
           <StatTile label="総返済額" value={formatYen(repayment.totalRepayment)} />
           <StatTile label="総利息" value={formatYen(repayment.totalInterest)} />
@@ -745,7 +774,7 @@ export default function FpSection({ property }: FpSectionProps) {
       <div>
         <h3 className="font-heading text-lg text-ink">固定金利 vs 変動金利</h3>
         <p className="mt-1 text-sm text-ink/55">
-          借入額・返済期間は物件情報の値を使用します。「変動金利が上昇」は、下の上昇シナリオで指定したタイミング・幅で金利が段階的に変わり、そのたびに残りの返済期間で返済額を組み直すという前提での試算です。実際の金利変動を予測するものではなく、あくまで目安としてご利用ください。
+          借入額・返済期間は上の「返済計画」で設定した値を使用します。「変動金利が上昇」は、下の上昇シナリオで指定したタイミング・幅で金利が段階的に変わり、そのたびに残りの返済期間で返済額を組み直すという前提での試算です。実際の金利変動を予測するものではなく、あくまで目安としてご利用ください。
         </p>
 
         <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">

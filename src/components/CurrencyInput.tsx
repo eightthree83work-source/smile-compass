@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState } from "react";
+import { formatJapaneseYen } from "@/lib/japaneseAmount";
 
 interface CurrencyInputProps {
   id: string;
@@ -9,6 +10,8 @@ interface CurrencyInputProps {
   onChange: (value: number | undefined) => void;
   placeholder?: string;
   className?: string;
+  /** 入力欄の下に「1億2,500万円」のような日本語の位取り表記を補助表示する（円単位の金額欄向け） */
+  showJapaneseAmount?: boolean;
 }
 
 function isSignificantChar(ch: string): boolean {
@@ -60,7 +63,14 @@ function formatValueForDisplay(value: number | undefined): string {
 }
 
 /** 円・万円などの金額入力欄。内部の値はカンマなしの数値のまま、表示だけカンマ区切りにする */
-export default function CurrencyInput({ id, value, onChange, placeholder, className }: CurrencyInputProps) {
+export default function CurrencyInput({
+  id,
+  value,
+  onChange,
+  placeholder,
+  className,
+  showJapaneseAmount,
+}: CurrencyInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const pendingCaretRef = useRef<number | null>(null);
 
@@ -116,17 +126,22 @@ export default function CurrencyInput({ id, value, onChange, placeholder, classN
     onChange(parsed);
   };
 
+  const japaneseAmount = showJapaneseAmount ? formatJapaneseYen(value) : null;
+
   return (
-    <input
-      ref={inputRef}
-      id={id}
-      type="text"
-      inputMode="decimal"
-      placeholder={placeholder}
-      className={className}
-      value={displayValue}
-      onChange={handleChange}
-      onFocus={(e) => e.target.select()}
-    />
+    <>
+      <input
+        ref={inputRef}
+        id={id}
+        type="text"
+        inputMode="decimal"
+        placeholder={placeholder}
+        className={className}
+        value={displayValue}
+        onChange={handleChange}
+        onFocus={(e) => e.target.select()}
+      />
+      {japaneseAmount && <p className="mt-1 text-xs text-ink/45">{japaneseAmount}</p>}
+    </>
   );
 }

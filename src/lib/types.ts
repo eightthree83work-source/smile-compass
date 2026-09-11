@@ -43,12 +43,17 @@ export interface Property {
   landAreaTsubo?: number;
 }
 
+/** 金利未設定時の既定値（年率 %）。物件情報フォームには入力欄がなく、FPのサポートタブで調整する。一般的な変動金利の水準を想定 */
+export const DEFAULT_INTEREST_RATE_ANNUAL = 0.7;
+/** 返済期間未設定時の既定値（年）。物件情報フォームには入力欄がなく、FPのサポートタブで調整する */
+export const DEFAULT_LOAN_TERM_YEARS = 35;
+
 export function createDefaultProperty(): Property {
   return {
     price: 0,
     downPayment: 0,
-    interestRateAnnual: 0,
-    loanTermYears: 35,
+    interestRateAnnual: DEFAULT_INTEREST_RATE_ANNUAL,
+    loanTermYears: DEFAULT_LOAN_TERM_YEARS,
     floorAreaSqm: 0,
     buildingAgeYears: 0,
     structureType: "wood",

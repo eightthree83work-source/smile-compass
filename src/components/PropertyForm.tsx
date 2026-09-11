@@ -35,7 +35,7 @@ const SEISMIC_CERTIFICATE_TOOLTIP_TEXT =
 const ENERGY_EFFICIENCY_CERTIFICATE_TOOLTIP_TEXT =
   "住宅ローン控除の借入限度額に関わります。認定長期優良住宅・認定低炭素住宅・ZEH水準省エネ住宅・省エネ基準適合住宅などの認定がある場合、借入限度額が2,000万円→3,000万円に上がり、控除額が増える可能性があります（控除率0.7%・控除期間10年は変わりません）。";
 
-type RequiredNumberKey = "price" | "interestRateAnnual" | "loanTermYears" | "householdIncomeManYen";
+type RequiredNumberKey = "price" | "householdIncomeManYen";
 
 interface PropertyFormProps {
   value: Property;
@@ -60,7 +60,7 @@ export default function PropertyForm({ value, onChange }: PropertyFormProps) {
         <label htmlFor="price" className={LABEL_CLASS_NAME}>
           価格（円）
         </label>
-        <CurrencyInput id="price" className={INPUT_CLASS_NAME} {...requiredNumberProps("price")} />
+        <CurrencyInput id="price" className={INPUT_CLASS_NAME} showJapaneseAmount {...requiredNumberProps("price")} />
       </div>
 
       <div>
@@ -74,24 +74,6 @@ export default function PropertyForm({ value, onChange }: PropertyFormProps) {
           value={value.downPayment}
           onChange={(next) => updateField("downPayment", next ?? 0)}
         />
-      </div>
-
-      <div>
-        <label htmlFor="interestRateAnnual" className={LABEL_CLASS_NAME}>
-          金利（年率 %）
-        </label>
-        <CurrencyInput
-          id="interestRateAnnual"
-          className={INPUT_CLASS_NAME}
-          {...requiredNumberProps("interestRateAnnual")}
-        />
-      </div>
-
-      <div>
-        <label htmlFor="loanTermYears" className={LABEL_CLASS_NAME}>
-          返済期間（年）
-        </label>
-        <CurrencyInput id="loanTermYears" className={INPUT_CLASS_NAME} {...requiredNumberProps("loanTermYears")} />
       </div>
 
       <div>
