@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import { Property } from "@/lib/types";
 import { calculateLifetimeCostEstimate, calculateLoanRepayment, simulateMortgageDeduction } from "@/lib/calculations";
@@ -12,7 +12,7 @@ import ShareResultCard from "@/components/ShareResultCard";
 import SavePropertyDialog from "@/components/SavePropertyDialog";
 import { ComparisonSnapshot } from "@/lib/propertyComparison";
 import { geocodeAddress } from "@/lib/geocoding";
-import { checkHazardAtPoint } from "@/lib/hazardCheck";
+import { HazardCheckResult, checkHazardAtPoint } from "@/lib/hazardCheck";
 import { ShareSummary, encodeShareSummary } from "@/lib/shareSummary";
 import {
   FpAdvisorFaceIcon,
@@ -85,8 +85,8 @@ function LineIcon({ className }: { className?: string }) {
   );
 }
 
-/** クリップボード/リンクを表すシンプルなアイコン */
-function LinkIcon({ className }: { className?: string }) {
+/** クリップボードにコピーする操作を表すアイコン */
+function CopyIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -98,8 +98,44 @@ function LinkIcon({ className }: { className?: string }) {
       className={className}
       aria-hidden="true"
     >
-      <path d="M10 13a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L11.5 4.5" />
-      <path d="M14 11a5 5 0 0 0-7.07 0L4.1 13.83a5 5 0 0 0 7.07 7.07L12.5 19.5" />
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+/** コピー完了などの成功状態を表すチェックマークアイコン */
+function CheckIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
+/** パネルの開閉状態を表すシェブロン（下向き固定、開いたら回転させて使う） */
+function ChevronIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="m6 9 6 6 6-6" />
     </svg>
   );
 }
@@ -138,22 +174,19 @@ export default function DiagnosisSummaryCard({
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
-  // SNSシェア用リンク（金額はデフォルト非公開）。トグルを変更したら、リンクは作り直しが必要になる
+  // SNSシェアパネルの開閉と、シェアリンク（金額はデフォルト非公開）
+  const [isSharePanelOpen, setIsSharePanelOpen] = useState(false);
   const [showAmountsInShare, setShowAmountsInShare] = useState(false);
-  const [shareLink, setShareLink] = useState<string | null>(null);
-  const [isBuildingShareLink, setIsBuildingShareLink] = useState(false);
+  const [shareCode, setShareCode] = useState<string | null>(null);
   const [shareLinkError, setShareLinkError] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [hazardResult, setHazardResult] = useState<HazardCheckResult | null>(null);
+  const [isFetchingHazard, setIsFetchingHazard] = useState(false);
+  const [isPreviewImageLoading, setIsPreviewImageLoading] = useState(false);
+  // パネルを開いている間、所在地1件につき1回だけハザード簡易判定を行うための記録
+  const hazardFetchedLocationRef = useRef<string | null>(null);
 
   const hasEnoughData = property.price > 0 && property.floorAreaSqm > 0;
-
-  if (!hasEnoughData) {
-    return (
-      <div className="mt-8 rounded-lg border border-ink/15 bg-white px-6 py-10 text-center text-sm text-ink/55">
-        物件情報を入力すると診断サマリーが表示されます
-      </div>
-    );
-  }
 
   const pricePerTsubo = calculatePricePerTsuboManYen(property);
   const valuationResult =
@@ -189,25 +222,13 @@ export default function DiagnosisSummaryCard({
 
   const mortgageDeduction = simulateMortgageDeduction(property);
 
-  const handleBuildShareLink = async () => {
-    if (isBuildingShareLink) return;
-    setIsBuildingShareLink(true);
-    setShareLinkError(null);
-    setLinkCopied(false);
+  // シェア用リンク（/share?d=...）とOGPプレビュー画像（/api/share-image?d=...）のURL。
+  // shareCodeが確定するまではプレビューを表示しない
+  const shareLink = shareCode ? `${window.location.origin}/share?d=${shareCode}` : null;
+  const previewImageUrl = shareCode ? `/api/share-image?d=${shareCode}` : null;
 
-    // ハザード有無は、所在地をジオコーディングできた場合のみ簡易判定する（失敗時はunknown扱い）
-    let hazard: Awaited<ReturnType<typeof checkHazardAtPoint>> | null = null;
-    if (trimmedLocation) {
-      try {
-        const geocoded = await geocodeAddress(trimmedLocation);
-        if (geocoded) {
-          hazard = await checkHazardAtPoint(geocoded.lat, geocoded.lon);
-        }
-      } catch {
-        hazard = null;
-      }
-    }
-
+  // shareCodeを作り直す（ハザード判定結果が未確定の間は「未確認」のまま先に作り、判定が確定次第作り直す）
+  const rebuildShareCode = (hazard: HazardCheckResult | null) => {
     const summary: ShareSummary = {
       v: 1,
       loc: shareLocationLabel,
@@ -231,25 +252,77 @@ export default function DiagnosisSummaryCard({
     };
 
     try {
-      const code = encodeShareSummary(summary);
-      setShareLink(`${window.location.origin}/share?d=${code}`);
+      setShareCode(encodeShareSummary(summary));
+      setShareLinkError(null);
     } catch {
       setShareLinkError("シェアリンクの作成に失敗しました。もう一度お試しください。");
-    } finally {
-      setIsBuildingShareLink(false);
     }
   };
+
+  // パネルを開いた直後・「金額を表示する」切り替え時・ハザード判定確定時に、プレビューを作り直す
+  useEffect(() => {
+    if (!isSharePanelOpen) return;
+    // プレビュー画像のsrcが切り替わるため、読み込み完了までは薄く表示する
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsPreviewImageLoading(true);
+    rebuildShareCode(hazardResult);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSharePanelOpen, showAmountsInShare, hazardResult]);
+
+  // パネルを開いている間、所在地が変わるたびに1回だけハザード簡易判定を行う
+  useEffect(() => {
+    if (!isSharePanelOpen) return;
+
+    if (!trimmedLocation) {
+      if (hazardFetchedLocationRef.current !== null) {
+        hazardFetchedLocationRef.current = null;
+        setHazardResult(null);
+      }
+      return;
+    }
+
+    if (hazardFetchedLocationRef.current === trimmedLocation) return;
+
+    let cancelled = false;
+    setIsFetchingHazard(true);
+
+    (async () => {
+      let hazard: HazardCheckResult | null = null;
+      try {
+        const geocoded = await geocodeAddress(trimmedLocation);
+        if (geocoded) hazard = await checkHazardAtPoint(geocoded.lat, geocoded.lon);
+      } catch {
+        hazard = null;
+      }
+      if (cancelled) return;
+      hazardFetchedLocationRef.current = trimmedLocation;
+      setHazardResult(hazard);
+      setIsFetchingHazard(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSharePanelOpen, trimmedLocation]);
 
   const handleCopyShareLink = async () => {
     if (!shareLink) return;
     try {
       await navigator.clipboard.writeText(shareLink);
       setLinkCopied(true);
-      setTimeout(() => setLinkCopied(false), 2500);
+      setTimeout(() => setLinkCopied(false), 2000);
     } catch {
       setShareLinkError("コピーに失敗しました。リンクを選択してコピーしてください。");
     }
   };
+
+  if (!hasEnoughData) {
+    return (
+      <div className="mt-8 rounded-lg border border-ink/15 bg-white px-6 py-10 text-center text-sm text-ink/55">
+        物件情報を入力すると診断サマリーが表示されます
+      </div>
+    );
+  }
 
   const handleShare = async () => {
     if (!shareCardRef.current || isGeneratingImage) return;
@@ -346,15 +419,15 @@ export default function DiagnosisSummaryCard({
         </button>
         <button
           type="button"
-          onClick={handleShare}
-          disabled={isGeneratingImage}
-          className="flex min-h-12 touch-manipulation items-center gap-2 rounded-full bg-accent px-5 py-3 text-base font-bold text-white shadow-sm active:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={() => setIsSharePanelOpen((prev) => !prev)}
+          aria-expanded={isSharePanelOpen}
+          className="flex min-h-12 touch-manipulation items-center gap-2 rounded-full bg-accent px-5 py-3 text-base font-bold text-white shadow-sm active:opacity-80"
         >
           <ShareIcon className="h-5 w-5 shrink-0" />
-          {isGeneratingImage ? "生成中..." : "診断結果をシェアする🧭"}
+          診断結果をシェアする
+          <ChevronIcon className={`h-4 w-4 shrink-0 transition-transform ${isSharePanelOpen ? "rotate-180" : ""}`} />
         </button>
       </div>
-      {imageError && <p className="px-1 pb-2 text-right text-xs text-[#a12f2f]">{imageError}</p>}
       {saveMessage && (
         <p className="px-1 pb-2 text-right text-xs text-ink/60">{saveMessage}</p>
       )}
@@ -365,56 +438,72 @@ export default function DiagnosisSummaryCard({
           onCancel={() => setShowSaveDialog(false)}
         />
       )}
-      {showTwitterFallback && (
-        <div className="flex flex-col items-end gap-1 px-1 pb-2">
-          <a
-            href={buildTwitterIntentUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="min-h-9 touch-manipulation rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white active:opacity-80"
-          >
-            Xでシェアする
-          </a>
-          <p className="text-xs text-ink/50">ダウンロードした画像を投稿画面に添付してください</p>
-        </div>
-      )}
 
-      <div className="mb-6 rounded-lg border border-accent/25 bg-white px-5 py-5 sm:px-7 sm:py-6">
-        <div className="flex items-center gap-2">
-          <LinkIcon className="h-5 w-5 shrink-0 text-accent" />
-          <h3 className="font-heading text-lg text-ink">SNSでシェア</h3>
-        </div>
-        <p className="mt-1 text-sm text-ink/55">
-          物件のカルテをリンクでシェアできます。X・LINEに貼ると、OGP画像とあわせて表示されます。
-        </p>
+      {isSharePanelOpen && (
+        <div className="mb-6 rounded-lg border border-ink/15 bg-white px-6 py-6 sm:px-8 sm:py-7">
+          <h3 className="font-heading text-lg text-ink">シェア方法を選ぶ</h3>
+          <p className="mt-1 text-sm text-ink/55">
+            物件のカルテをX・LINE・リンクでシェアできます。送る前に、どう見えるか下のプレビューで確認できます。
+          </p>
 
-        <label className="mt-3 flex items-center gap-2 text-sm text-ink/65">
-          <input
-            type="checkbox"
-            className="h-4 w-4 rounded border-ink/25 text-accent focus:ring-accent"
-            checked={showAmountsInShare}
-            onChange={(e) => {
-              setShowAmountsInShare(e.target.checked);
-              setShareLink(null);
-            }}
-          />
-          金額を表示する（坪単価・月々返済額・生涯コスト・住宅ローン控除額）
-        </label>
-        <p className="mt-1 text-xs text-ink/45">デフォルトは非公開です。世帯年収はこのシェア機能では送信されません。</p>
+          <label className="mt-4 flex items-center gap-2 text-sm text-ink/65">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-ink/25 text-accent focus:ring-accent"
+              checked={showAmountsInShare}
+              onChange={(e) => setShowAmountsInShare(e.target.checked)}
+            />
+            金額を表示する（坪単価・月々返済額・生涯コスト・住宅ローン控除額）
+          </label>
+          <p className="mt-1 text-xs text-ink/45">デフォルトは非公開です。世帯年収はこのシェア機能では送信されません。</p>
 
-        {!shareLink ? (
-          <button
-            type="button"
-            onClick={handleBuildShareLink}
-            disabled={isBuildingShareLink}
-            className="mt-3 flex min-h-11 touch-manipulation items-center gap-2 rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-white shadow-sm active:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <LinkIcon className="h-4 w-4 shrink-0" />
-            {isBuildingShareLink ? "作成中..." : "シェアリンクを作成"}
-          </button>
-        ) : (
-          <div className="mt-3 space-y-2">
-            <div className="flex flex-wrap gap-2">
+          <div className="mt-4">
+            <p className="text-xs font-medium text-ink/55">プレビュー</p>
+            <div className="relative mt-1 aspect-[1200/630] w-full overflow-hidden rounded-lg border border-ink/10 bg-ink/5">
+              {previewImageUrl && (
+                // eslint-disable-next-line @next/next/no-img-element -- 動的に生成されるOGP画像のプレビューのため素のimgを使う
+                <img
+                  key={previewImageUrl}
+                  src={previewImageUrl}
+                  alt="シェア時にX・LINEなどで表示されるOGP画像のプレビュー"
+                  onLoad={() => setIsPreviewImageLoading(false)}
+                  onError={() => setIsPreviewImageLoading(false)}
+                  className={`h-full w-full object-cover transition-opacity duration-200 ${
+                    isPreviewImageLoading ? "opacity-0" : "opacity-100"
+                  }`}
+                />
+              )}
+              {isPreviewImageLoading && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="text-xs text-ink/40">プレビューを作成中...</span>
+                </div>
+              )}
+            </div>
+            {isFetchingHazard && (
+              <p className="mt-1 text-xs text-ink/40">周辺のハザード情報を確認しています...</p>
+            )}
+          </div>
+
+          <div className="mt-4">
+            <p className="text-xs font-medium text-ink/55">シェアリンク</p>
+            <div className="mt-1 flex items-center gap-2 rounded-md border border-ink/15 bg-ink/5 px-3 py-2">
+              <span className="flex-1 truncate text-xs text-ink/60">{shareLink ?? "リンクを準備しています..."}</span>
+              <button
+                type="button"
+                onClick={handleCopyShareLink}
+                disabled={!shareLink}
+                aria-label="シェアリンクをコピー"
+                className="flex h-8 w-8 shrink-0 touch-manipulation items-center justify-center rounded-md text-ink/60 active:bg-ink/10 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {linkCopied ? <CheckIcon className="h-4 w-4 text-[#0b6b0b]" /> : <CopyIcon className="h-4 w-4" />}
+              </button>
+            </div>
+            {linkCopied && <p className="mt-1 text-xs text-[#0b6b0b]">コピーしました</p>}
+            {shareLinkError && <p className="mt-1 text-xs text-[#a12f2f]">{shareLinkError}</p>}
+          </div>
+
+          {shareLink && (
+            <div className="mt-4 flex flex-wrap gap-2">
               <a
                 href={buildTwitterIntentUrlForLink(shareLink)}
                 target="_blank"
@@ -433,28 +522,36 @@ export default function DiagnosisSummaryCard({
                 <LineIcon className="h-4 w-4 shrink-0" />
                 LINEでシェア
               </a>
-              <button
-                type="button"
-                onClick={handleCopyShareLink}
-                className="flex min-h-11 touch-manipulation items-center gap-2 rounded-full border border-ink/20 bg-white px-4 py-2.5 text-sm font-medium text-ink/75 active:bg-ink/5"
-              >
-                <LinkIcon className="h-4 w-4 shrink-0" />
-                {linkCopied ? "コピーしました" : "URLをコピー"}
-              </button>
             </div>
-            <p className="break-all text-xs text-ink/45">{shareLink}</p>
+          )}
+
+          <div className="mt-5 border-t border-ink/10 pt-4">
             <button
               type="button"
-              onClick={handleBuildShareLink}
-              disabled={isBuildingShareLink}
-              className="text-xs font-medium text-ink/50 underline active:text-ink/70"
+              onClick={handleShare}
+              disabled={isGeneratingImage}
+              className="flex min-h-11 touch-manipulation items-center gap-2 rounded-full border border-ink/20 bg-white px-4 py-2.5 text-sm font-medium text-ink/75 active:bg-ink/5 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              作り直す
+              <ShareIcon className="h-4 w-4 shrink-0" />
+              {isGeneratingImage ? "画像を作成中..." : "画像を保存してシェアする"}
             </button>
+            {imageError && <p className="mt-2 text-xs text-[#a12f2f]">{imageError}</p>}
+            {showTwitterFallback && (
+              <div className="mt-2 flex flex-col items-start gap-1">
+                <a
+                  href={buildTwitterIntentUrl()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-h-9 touch-manipulation rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white active:opacity-80"
+                >
+                  Xでシェアする
+                </a>
+                <p className="text-xs text-ink/50">ダウンロードした画像を投稿画面に添付してください</p>
+              </div>
+            )}
           </div>
-        )}
-        {shareLinkError && <p className="mt-2 text-xs text-[#a12f2f]">{shareLinkError}</p>}
-      </div>
+        </div>
+      )}
 
       <div className="rounded-lg border border-ink/15 bg-white px-6 py-6 sm:px-10 sm:py-8">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-ink/10 pb-4">
