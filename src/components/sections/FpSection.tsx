@@ -20,6 +20,7 @@ import CharacterTooltip from "@/components/CharacterTooltip";
 import CurrencyInput from "@/components/CurrencyInput";
 import { INPUT_CLASS_NAME } from "@/components/PropertyForm";
 import { FpAdvisorCharacterImage, FpAdvisorFaceIcon } from "@/components/icons/AdvisorCharacterImages";
+import { RepaymentBurdenLevel, assessRepaymentBurden } from "@/lib/affordability";
 import { generateId } from "@/lib/id";
 import { DEFAULT_INTEREST_RATE_ANNUAL, DEFAULT_LOAN_TERM_YEARS, Property } from "@/lib/types";
 import {
@@ -45,6 +46,20 @@ interface FpSectionProps {
 
 const MLIT_HOUSING_SUPPORT_SEARCH_URL =
   "https://www.mlit.go.jp/jutakukentiku/house/jutakukentiku_house_tk3_000055.html";
+
+const HOUSEHOLD_INCOME_CTA_TEXT =
+  "年収を入力すると、月々の返済に無理がないか・融資が通りそうかの目安を診断します。";
+
+const REPAYMENT_BURDEN_DISCLAIMER_TEXT =
+  "これはあくまで一般的な目安であり、実際の融資審査結果を保証するものではありません。正式な判断は金融機関にご確認ください。";
+
+// 坪単価判定（JUDGMENT_STYLES）・住宅ローン控除の対象外バッジ（EligibilityBadge）と同じ配色トーンを踏襲
+const REPAYMENT_BURDEN_STYLES: Record<RepaymentBurdenLevel, string> = {
+  comfortable: "border-[#0ca30c]/30 bg-[#0ca30c]/5 text-[#0b6b0b]",
+  reasonable: "border-ink/15 bg-ink/5 text-ink/70",
+  caution: "border-accent/30 bg-accent/5 text-accent",
+  risk: "border-[#d03b3b]/30 bg-[#d03b3b]/5 text-[#a12f2f]",
+};
 
 // 詳細設定モードの行内で使う小さめの入力欄用（INPUT_CLASS_NAMEのw-fullを持ち込むと横並びで幅の指定が効かないため専用に用意する）
 const COMPACT_INPUT_CLASS_NAME =
@@ -588,6 +603,7 @@ export default function FpSection({ property, onChange }: FpSectionProps) {
   const taxReduction = getAcquisitionAndRegistrationTaxReduction(property);
   const lifetimeCost = calculateLifetimeCostEstimate(property);
   const lifetimeExpenseTimeline = generateLifetimeExpenseTimeline(property);
+  const repaymentBurden = assessRepaymentBurden(property);
 
   // 生涯コストの累計グラフ用：年ごとの支出を積み上げていく
   const cumulativeLifetimeCostData = lifetimeExpenseTimeline.reduce<CumulativeLifetimeCostPoint[]>((acc, point) => {
@@ -730,6 +746,33 @@ export default function FpSection({ property, onChange }: FpSectionProps) {
         <h2 className="font-heading text-xl text-ink">FPのサポート</h2>
       </div>
 
+      <div className="rounded-lg border border-accent/30 bg-white p-4">
+        {/*
+          CurrencyInputは値が変わるたびに即座にonChangeする（他の入力欄と挙動を揃えるため）。
+          このCTA自体をproperty.householdIncomeManYen<=0で丸ごと出し分けると、1桁目を
+          入力した瞬間に条件がfalseになりCurrencyInputごとアンマウントされ、フォーカスが
+          外れて2桁目以降が入力できなくなる。そのため入力欄自体は常に描画し、案内文だけを
+          出し分ける。
+        */}
+        {property.householdIncomeManYen <= 0 && (
+          <div className="flex items-start gap-2">
+            <FpAdvisorFaceIcon className="h-6 w-6 shrink-0" />
+            <p className="text-sm text-ink/70">{HOUSEHOLD_INCOME_CTA_TEXT}</p>
+          </div>
+        )}
+        <div className={`max-w-xs ${property.householdIncomeManYen <= 0 ? "mt-3" : ""}`}>
+          <label htmlFor="fpHouseholdIncomeManYen" className="block text-sm font-medium text-ink/80">
+            世帯年収（万円）
+          </label>
+          <CurrencyInput
+            id="fpHouseholdIncomeManYen"
+            className={INPUT_CLASS_NAME}
+            value={property.householdIncomeManYen === 0 ? undefined : property.householdIncomeManYen}
+            onChange={(next) => onChange({ ...property, householdIncomeManYen: next ?? 0 })}
+          />
+        </div>
+      </div>
+
       <div>
         <h3 className="font-heading text-lg text-ink">返済計画</h3>
         <p className="mt-1 text-sm text-ink/55">
@@ -770,6 +813,22 @@ export default function FpSection({ property, onChange }: FpSectionProps) {
         </p>
         <RepaymentScheduleChart schedule={repaymentSchedule} loanPrincipal={loanPrincipal} />
       </div>
+
+      {repaymentBurden && (
+        <div>
+          <h3 className="font-heading text-lg text-ink">返済負担率の目安</h3>
+          <p className="mt-1 text-sm text-ink/55">
+            年間のローン返済額が世帯年収に占める割合（返済負担率）から、家計への負担感の目安を診断します。
+          </p>
+          <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <StatTile label="返済負担率" value={`${repaymentBurden.ratioPercent.toFixed(1)}%`} />
+            <div className={`flex items-center rounded-lg border p-4 text-sm ${REPAYMENT_BURDEN_STYLES[repaymentBurden.level]}`}>
+              {repaymentBurden.comment}
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-ink/45">{REPAYMENT_BURDEN_DISCLAIMER_TEXT}</p>
+        </div>
+      )}
 
       <div>
         <h3 className="font-heading text-lg text-ink">固定金利 vs 変動金利</h3>
