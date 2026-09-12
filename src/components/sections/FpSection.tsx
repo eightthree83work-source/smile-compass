@@ -20,7 +20,11 @@ import CharacterTooltip from "@/components/CharacterTooltip";
 import CurrencyInput from "@/components/CurrencyInput";
 import { INPUT_CLASS_NAME } from "@/components/PropertyForm";
 import { FpAdvisorCharacterImage, FpAdvisorFaceIcon } from "@/components/icons/AdvisorCharacterImages";
-import { RepaymentBurdenLevel, assessRepaymentBurden } from "@/lib/affordability";
+import {
+  REPAYMENT_BURDEN_DISCLAIMER_TEXT,
+  RepaymentBurdenLevel,
+  assessRepaymentBurden,
+} from "@/lib/affordability";
 import { generateId } from "@/lib/id";
 import { DEFAULT_INTEREST_RATE_ANNUAL, DEFAULT_LOAN_TERM_YEARS, Property } from "@/lib/types";
 import {
@@ -54,9 +58,6 @@ const MLIT_HOUSING_SUPPORT_SEARCH_URL =
 
 const HOUSEHOLD_INCOME_CTA_TEXT =
   "年収を入力すると、月々の返済に無理がないか・融資が通りそうかの目安を診断します。";
-
-const REPAYMENT_BURDEN_DISCLAIMER_TEXT =
-  "これはあくまで一般的な目安であり、実際の融資審査結果を保証するものではありません。正式な判断は金融機関にご確認ください。";
 
 // 坪単価判定（JUDGMENT_STYLES）・住宅ローン控除の対象外バッジ（EligibilityBadge）と同じ配色トーンを踏襲
 const REPAYMENT_BURDEN_STYLES: Record<RepaymentBurdenLevel, string> = {

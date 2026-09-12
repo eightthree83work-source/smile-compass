@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import { Property, TabId } from "@/lib/types";
 import {
@@ -12,7 +12,13 @@ import {
 import { getLegalChecklist } from "@/lib/legalChecklist";
 import { getInspectionChecklist } from "@/lib/inspectionChecklist";
 import { truncateAddressToCityLevel } from "@/lib/address";
-import { VALUATION_JUDGMENT_LABELS, calculatePricePerTsuboManYen, judgeValuation } from "@/lib/valuation";
+import { ValuationJudgment, VALUATION_JUDGMENT_LABELS, calculatePricePerTsuboManYen, judgeValuation } from "@/lib/valuation";
+import {
+  REPAYMENT_BURDEN_CHARACTER_COMMENTS,
+  REPAYMENT_BURDEN_DISCLAIMER_TEXT,
+  REPAYMENT_BURDEN_UNKNOWN_COMMENT,
+  assessRepaymentBurden,
+} from "@/lib/affordability";
 import ShareResultCard from "@/components/ShareResultCard";
 import SavePropertyDialog from "@/components/SavePropertyDialog";
 import { ComparisonSnapshot } from "@/lib/propertyComparison";
@@ -61,6 +67,39 @@ const JUDGMENT_STYLES: Record<string, string> = {
   undervalued: "text-[#0b6b0b]",
   reasonable: "text-ink",
   overvalued: "text-accent",
+};
+
+// 不動産プロ（柴犬）が坪単価判定に応じて話す一言。判定パターンごとに1箇所へまとめておく
+const VALUATION_JUDGMENT_COMMENTS: Record<ValuationJudgment, string> = {
+  undervalued: "相場より手頃な価格だよ。掘り出し物件かもしれないね！",
+  reasonable: "相場に見合った、妥当な価格帯だね。",
+  overvalued: "相場より高めの価格帯だよ。他の物件とも比較してみよう。",
+};
+const VALUATION_JUDGMENT_UNKNOWN_COMMENT = "周辺相場を入力すると、割安か割高か診断するよ！";
+
+/** 宅建士・住宅診断士の要確認項目数に応じたコメントの段階。件数が増えるほど確認の必要性が高まることを表す */
+type ChecklistCommentTier = "none" | "few" | "many";
+/** この件数未満なら「few」（少数） */
+const CHECKLIST_MANY_THRESHOLD = 4;
+
+function getChecklistCommentTier(count: number): ChecklistCommentTier {
+  if (count <= 0) return "none";
+  if (count < CHECKLIST_MANY_THRESHOLD) return "few";
+  return "many";
+}
+
+// 宅建士（フクロウ）が要確認項目数に応じて話す一言
+const LEGAL_CHECKLIST_COMMENTS: Record<ChecklistCommentTier, string> = {
+  none: "契約前に特に気になる法的なポイントはなさそうですね。",
+  few: "契約前に確認しておきたい点がいくつかありますよ。目を通しておきましょう。",
+  many: "重要事項として確認すべき点がいくつもあります。契約前に必ず確認しましょう。",
+};
+
+// 住宅診断士（モグラ）が要確認項目数に応じて話す一言
+const INSPECTION_CHECKLIST_COMMENTS: Record<ChecklistCommentTier, string> = {
+  none: "今のところ気になる劣化ポイントは見当たりませんね。",
+  few: "建物の状態で気になる点がいくつかあります。内覧時によく見ておきましょう。",
+  many: "建物の状態について気になる点がいくつもあります。専門家による現地調査もご検討ください。",
 };
 
 // サマリー項目クリックで該当タブへ遷移できることを示す。ホバー時の薄い背景色・
@@ -180,6 +219,23 @@ function ShareIcon({ className }: { className?: string }) {
   );
 }
 
+/**
+ * キャラクターアイコン＋吹き出しで一言コメントを表示する。CharacterTooltip（クリックで開閉する補足説明）
+ * とは異なり、診断結果そのものを常時表示するためのコメントなので、開閉インタラクションは持たない。
+ */
+function SpeechBubble({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <div className="mt-3 flex items-start gap-2">
+      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-white">
+        {icon}
+      </div>
+      <div className="relative flex-1 rounded-xl rounded-tl-sm border border-ink/15 bg-[#FBF6EC] px-3 py-2 text-xs leading-relaxed text-ink/70 before:absolute before:-left-1.5 before:top-2 before:h-3 before:w-3 before:rotate-45 before:border-b before:border-l before:border-ink/15 before:bg-[#FBF6EC]">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function DiagnosisSummaryCard({
   property,
   marketPricePerTsuboManYen,
@@ -218,6 +274,7 @@ export default function DiagnosisSummaryCard({
 
   const repayment = calculateLoanRepayment(property);
   const lifetimeCost = calculateLifetimeCostEstimate(property);
+  const repaymentBurden = assessRepaymentBurden(property);
 
   // FPのサポートタブで固定/変動金利シナリオを比較済みの場合、有利なほうの数値をサマリーに反映する
   // （FPタブを一度も開いていない場合はnullのままなので、従来どおり固定金利の試算結果を使う）
@@ -593,7 +650,7 @@ export default function DiagnosisSummaryCard({
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
+        <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
           <button type="button" onClick={() => onNavigateToTab("valuation")} className={SUMMARY_ITEM_BUTTON_CLASS_NAME}>
             <span className="flex items-center gap-1.5 text-xs text-ink/45">
               <RealtorFaceIcon className="h-5 w-5 shrink-0" />
@@ -606,49 +663,62 @@ export default function DiagnosisSummaryCard({
             >
               {valuationResult ? VALUATION_JUDGMENT_LABELS[valuationResult.judgment] : "周辺相場を入力すると表示されます"}
             </span>
+            <SpeechBubble icon={<RealtorFaceIcon className="h-full w-full" />}>
+              {valuationResult ? VALUATION_JUDGMENT_COMMENTS[valuationResult.judgment] : VALUATION_JUDGMENT_UNKNOWN_COMMENT}
+            </SpeechBubble>
           </button>
 
           <button type="button" onClick={() => onNavigateToTab("fp")} className={SUMMARY_ITEM_BUTTON_CLASS_NAME}>
             <span className="flex items-center gap-1.5 text-xs text-ink/45">
               <FpAdvisorFaceIcon className="h-5 w-5 shrink-0" />
-              FPのサポート｜月々返済額
+              FPのサポート｜返済プラン
             </span>
-            <span className="mt-1 font-heading text-xl text-ink">
-              {formatYen(displayedMonthlyPayment)}
-              {loanScenarioAnnotation && (
-                <span className="ml-1.5 font-sans text-xs font-normal text-ink/40">{loanScenarioAnnotation}</span>
-              )}
+            <span className="mt-1 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+              <span>
+                <span className="block text-[11px] text-ink/40">月々返済額</span>
+                <span className="font-heading text-xl text-ink">{formatYen(displayedMonthlyPayment)}</span>
+              </span>
+              <span>
+                <span className="block text-[11px] text-ink/40">生涯コストの目安</span>
+                <span className="font-heading text-xl text-ink">{formatYen(displayedNetLifetimeCost)}</span>
+              </span>
             </span>
-          </button>
-
-          <button type="button" onClick={() => onNavigateToTab("fp")} className={SUMMARY_ITEM_BUTTON_CLASS_NAME}>
-            <span className="flex items-center gap-1.5 text-xs text-ink/45">
-              <FpAdvisorFaceIcon className="h-5 w-5 shrink-0" />
-              FPのサポート｜生涯コストの目安
-            </span>
-            <span className="mt-1 font-heading text-xl text-ink">
-              {formatYen(displayedNetLifetimeCost)}
-              {loanScenarioAnnotation && (
-                <span className="ml-1.5 font-sans text-xs font-normal text-ink/40">{loanScenarioAnnotation}</span>
-              )}
-            </span>
+            {loanScenarioAnnotation && <span className="mt-0.5 block text-xs text-ink/40">{loanScenarioAnnotation}</span>}
+            <SpeechBubble icon={<FpAdvisorFaceIcon className="h-full w-full" />}>
+              {repaymentBurden ? REPAYMENT_BURDEN_CHARACTER_COMMENTS[repaymentBurden.level] : REPAYMENT_BURDEN_UNKNOWN_COMMENT}
+            </SpeechBubble>
+            {repaymentBurden && (
+              <p className="mt-2 text-xs text-ink/45">
+                返済負担率 {repaymentBurden.ratioPercent.toFixed(1)}%。{REPAYMENT_BURDEN_DISCLAIMER_TEXT}
+              </p>
+            )}
           </button>
 
           <button type="button" onClick={() => onNavigateToTab("legal")} className={SUMMARY_ITEM_BUTTON_CLASS_NAME}>
             <span className="flex items-center gap-1.5 text-xs text-ink/45">
-              <span className="flex -space-x-1.5">
-                <LegalAdvisorFaceIcon className="h-5 w-5 shrink-0 ring-2 ring-white" />
-                <InspectorFaceIcon className="h-5 w-5 shrink-0 ring-2 ring-white" />
-              </span>
-              宅建士・住宅診断士のサポート｜要確認項目数
+              <LegalAdvisorFaceIcon className="h-5 w-5 shrink-0" />
+              宅建士のサポート｜要確認項目数
+            </span>
+            <span className="mt-1 font-heading text-xl text-ink">{legalChecklist.length}項目</span>
+            <SpeechBubble icon={<LegalAdvisorFaceIcon className="h-full w-full" />}>
+              {LEGAL_CHECKLIST_COMMENTS[getChecklistCommentTier(legalChecklist.length)]}
+            </SpeechBubble>
+          </button>
+
+          <button type="button" onClick={() => onNavigateToTab("inspection")} className={SUMMARY_ITEM_BUTTON_CLASS_NAME}>
+            <span className="flex items-center gap-1.5 text-xs text-ink/45">
+              <InspectorFaceIcon className="h-5 w-5 shrink-0" />
+              住宅診断士のサポート｜要確認項目数
             </span>
             <span className="mt-1 font-heading text-xl text-ink">
-              {legalChecklist.length + inspectionChecklist.length}項目
-              <span className="ml-2 font-sans text-sm text-ink/50">
-                （宅建士{legalChecklist.length}・診断士{inspectionChecklist.length}
-                {inspectionPriorityCount > 0 ? `／優先${inspectionPriorityCount}` : ""}）
-              </span>
+              {inspectionChecklist.length}項目
+              {inspectionPriorityCount > 0 && (
+                <span className="ml-2 font-sans text-sm text-ink/50">（優先{inspectionPriorityCount}）</span>
+              )}
             </span>
+            <SpeechBubble icon={<InspectorFaceIcon className="h-full w-full" />}>
+              {INSPECTION_CHECKLIST_COMMENTS[getChecklistCommentTier(inspectionChecklist.length)]}
+            </SpeechBubble>
           </button>
         </div>
 
