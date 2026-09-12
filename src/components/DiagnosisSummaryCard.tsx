@@ -14,8 +14,10 @@ import { getInspectionChecklist } from "@/lib/inspectionChecklist";
 import { truncateAddressToCityLevel } from "@/lib/address";
 import { ValuationJudgment, VALUATION_JUDGMENT_LABELS, calculatePricePerTsuboManYen, judgeValuation } from "@/lib/valuation";
 import {
+  REPAYMENT_BURDEN_BADGE_STYLES,
   REPAYMENT_BURDEN_CHARACTER_COMMENTS,
   REPAYMENT_BURDEN_DISCLAIMER_TEXT,
+  REPAYMENT_BURDEN_TIER_LABELS,
   REPAYMENT_BURDEN_UNKNOWN_COMMENT,
   assessRepaymentBurden,
 } from "@/lib/affordability";
@@ -63,10 +65,16 @@ function formatYen(value: number): string {
   return yenFormatter.format(Math.round(value));
 }
 
-const JUDGMENT_STYLES: Record<string, string> = {
-  undervalued: "text-[#0b6b0b]",
-  reasonable: "text-ink",
-  overvalued: "text-accent",
+function formatManYenPerTsubo(value: number): string {
+  return `${value.toFixed(1)}万円/坪`;
+}
+
+// 不動産プロの割安/妥当/割高バッジ。ValuationSection（不動産プロのサポートタブ本体）の
+// 判定バッジと同じ配色ルール（緑・ニュートラル・赤）に揃え、FPの返済負担率バッジとも一貫させる
+const JUDGMENT_BADGE_STYLES: Record<ValuationJudgment, string> = {
+  undervalued: "border-[#0ca30c]/30 bg-[#0ca30c]/5 text-[#0b6b0b]",
+  reasonable: "border-ink/15 bg-ink/5 text-ink/70",
+  overvalued: "border-[#d03b3b]/30 bg-[#d03b3b]/5 text-[#a12f2f]",
 };
 
 // 不動産プロ（柴犬）が坪単価判定に応じて話す一言。判定パターンごとに1箇所へまとめておく
@@ -656,13 +664,20 @@ export default function DiagnosisSummaryCard({
               <RealtorFaceIcon className="h-5 w-5 shrink-0" />
               不動産プロのサポート｜坪単価判定
             </span>
-            <span
-              className={`mt-1 font-heading text-xl ${
-                valuationResult ? JUDGMENT_STYLES[valuationResult.judgment] : "text-ink/35"
-              }`}
-            >
-              {valuationResult ? VALUATION_JUDGMENT_LABELS[valuationResult.judgment] : "周辺相場を入力すると表示されます"}
-            </span>
+            {valuationResult ? (
+              <span
+                className={`mt-1 inline-block rounded-md border px-3 py-1 font-heading text-lg ${JUDGMENT_BADGE_STYLES[valuationResult.judgment]}`}
+              >
+                {VALUATION_JUDGMENT_LABELS[valuationResult.judgment]}
+              </span>
+            ) : (
+              <span className="mt-1 block font-heading text-xl text-ink/35">周辺相場を入力すると表示されます</span>
+            )}
+            {valuationResult && pricePerTsubo !== null && (
+              <p className="mt-2 text-xs text-ink/50">
+                この物件：{formatManYenPerTsubo(pricePerTsubo)}　周辺相場平均：{formatManYenPerTsubo(marketPricePerTsuboManYen)}
+              </p>
+            )}
             <SpeechBubble icon={<RealtorFaceIcon className="h-full w-full" />}>
               {valuationResult ? VALUATION_JUDGMENT_COMMENTS[valuationResult.judgment] : VALUATION_JUDGMENT_UNKNOWN_COMMENT}
             </SpeechBubble>
@@ -673,17 +688,28 @@ export default function DiagnosisSummaryCard({
               <FpAdvisorFaceIcon className="h-5 w-5 shrink-0" />
               FPのサポート｜返済プラン
             </span>
-            <span className="mt-1 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+            {repaymentBurden ? (
+              <span
+                className={`mt-1 inline-block rounded-md border px-3 py-1 font-heading text-lg ${REPAYMENT_BURDEN_BADGE_STYLES[repaymentBurden.level]}`}
+              >
+                {REPAYMENT_BURDEN_TIER_LABELS[repaymentBurden.level]}
+              </span>
+            ) : (
+              <span className="mt-1 block font-heading text-xl text-ink/35">世帯年収を入力すると表示されます</span>
+            )}
+            <span className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1">
               <span>
                 <span className="block text-[11px] text-ink/40">月々返済額</span>
                 <span className="font-heading text-xl text-ink">{formatYen(displayedMonthlyPayment)}</span>
               </span>
               <span>
-                <span className="block text-[11px] text-ink/40">生涯コストの目安</span>
+                <span className="block text-[11px] text-ink/40">
+                  生涯コストの目安
+                  {loanScenarioAnnotation && <span className="ml-1 text-ink/35">{loanScenarioAnnotation}</span>}
+                </span>
                 <span className="font-heading text-xl text-ink">{formatYen(displayedNetLifetimeCost)}</span>
               </span>
             </span>
-            {loanScenarioAnnotation && <span className="mt-0.5 block text-xs text-ink/40">{loanScenarioAnnotation}</span>}
             <SpeechBubble icon={<FpAdvisorFaceIcon className="h-full w-full" />}>
               {repaymentBurden ? REPAYMENT_BURDEN_CHARACTER_COMMENTS[repaymentBurden.level] : REPAYMENT_BURDEN_UNKNOWN_COMMENT}
             </SpeechBubble>

@@ -21,8 +21,8 @@ import CurrencyInput from "@/components/CurrencyInput";
 import { INPUT_CLASS_NAME } from "@/components/PropertyForm";
 import { FpAdvisorCharacterImage, FpAdvisorFaceIcon } from "@/components/icons/AdvisorCharacterImages";
 import {
+  REPAYMENT_BURDEN_BADGE_STYLES,
   REPAYMENT_BURDEN_DISCLAIMER_TEXT,
-  RepaymentBurdenLevel,
   assessRepaymentBurden,
 } from "@/lib/affordability";
 import { generateId } from "@/lib/id";
@@ -58,14 +58,6 @@ const MLIT_HOUSING_SUPPORT_SEARCH_URL =
 
 const HOUSEHOLD_INCOME_CTA_TEXT =
   "年収を入力すると、月々の返済に無理がないか・融資が通りそうかの目安を診断します。";
-
-// 坪単価判定（JUDGMENT_STYLES）・住宅ローン控除の対象外バッジ（EligibilityBadge）と同じ配色トーンを踏襲
-const REPAYMENT_BURDEN_STYLES: Record<RepaymentBurdenLevel, string> = {
-  comfortable: "border-[#0ca30c]/30 bg-[#0ca30c]/5 text-[#0b6b0b]",
-  reasonable: "border-ink/15 bg-ink/5 text-ink/70",
-  caution: "border-accent/30 bg-accent/5 text-accent",
-  risk: "border-[#d03b3b]/30 bg-[#d03b3b]/5 text-[#a12f2f]",
-};
 
 // 詳細設定モードの行内で使う小さめの入力欄用（INPUT_CLASS_NAMEのw-fullを持ち込むと横並びで幅の指定が効かないため専用に用意する）
 const COMPACT_INPUT_CLASS_NAME =
@@ -849,7 +841,7 @@ export default function FpSection({ property, onChange, onScenarioSummaryChange 
           </p>
           <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <StatTile label="返済負担率" value={`${repaymentBurden.ratioPercent.toFixed(1)}%`} />
-            <div className={`flex items-center rounded-lg border p-4 text-sm ${REPAYMENT_BURDEN_STYLES[repaymentBurden.level]}`}>
+            <div className={`flex items-center rounded-lg border p-4 text-sm ${REPAYMENT_BURDEN_BADGE_STYLES[repaymentBurden.level]}`}>
               {repaymentBurden.comment}
             </div>
           </div>

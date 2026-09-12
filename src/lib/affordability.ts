@@ -35,6 +35,23 @@ export const REPAYMENT_BURDEN_UNKNOWN_COMMENT = "世帯年収を入力すると�
 export const REPAYMENT_BURDEN_DISCLAIMER_TEXT =
   "これはあくまで一般的な目安であり、実際の融資審査結果を保証するものではありません。正式な判断は金融機関にご確認ください。";
 
+/** 不動産プロの「割安/妥当/割高」に相当する、返済負担率の一言評価ラベル */
+export const REPAYMENT_BURDEN_TIER_LABELS: Record<RepaymentBurdenLevel, string> = {
+  comfortable: "安心",
+  reasonable: "良好",
+  caution: "注意",
+  risk: "危険",
+};
+
+// 不動産プロの割安/妥当/割高バッジ（緑・ニュートラル・赤）と同じ配色ルールを踏襲した4段階版。
+// cautionのみ、危険（risk＝赤）ほどではない注意喚起としてアクセントカラーを充てている
+export const REPAYMENT_BURDEN_BADGE_STYLES: Record<RepaymentBurdenLevel, string> = {
+  comfortable: "border-[#0ca30c]/30 bg-[#0ca30c]/5 text-[#0b6b0b]",
+  reasonable: "border-ink/15 bg-ink/5 text-ink/70",
+  caution: "border-accent/30 bg-accent/5 text-accent",
+  risk: "border-[#d03b3b]/30 bg-[#d03b3b]/5 text-[#a12f2f]",
+};
+
 export interface RepaymentBurdenAssessment {
   /** 返済負担率（%） */
   ratioPercent: number;
