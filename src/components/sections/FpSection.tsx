@@ -792,7 +792,7 @@ export default function FpSection({ property, onChange, onScenarioSummaryChange 
         </div>
       </div>
 
-      <div>
+      <div id="fp-repayment-plan-section" className="scroll-mt-4">
         <h3 className="font-heading text-lg text-ink">返済計画</h3>
         <p className="mt-1 text-sm text-ink/55">
           金利・返済期間は物件そのものの情報ではなくローンの組み方に関する条件のため、ここで調整します。未調整の場合は一般的な水準の既定値（金利{DEFAULT_INTEREST_RATE_ANNUAL}%・返済期間{DEFAULT_LOAN_TERM_YEARS}

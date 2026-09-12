@@ -45,7 +45,7 @@ interface DiagnosisSummaryCardProps {
   /** 保存した物件一覧から開いて編集中の場合、そのニックネーム（再保存ダイアログの初期値に使う） */
   currentNickname?: string | null;
   /** サマリー内の各項目クリック時に、対応するタブへ切り替える */
-  onNavigateToTab: (tab: TabId) => void;
+  onNavigateToTab: (tab: TabId, scrollTargetId: string) => void;
   /** FPのサポートタブで判定した固定/変動金利シナリオの有利判定。未取得（FPタブ未訪問）の場合はnull */
   loanScenarioSummary: LoanScenarioSummary | null;
 }
@@ -231,14 +231,17 @@ function ShareIcon({ className }: { className?: string }) {
  * キャラクターアイコン＋吹き出しで一言コメントを表示する。CharacterTooltip（クリックで開閉する補足説明）
  * とは異なり、診断結果そのものを常時表示するためのコメントなので、開閉インタラクションは持たない。
  */
+// 親のbutton（flex flex-col）内で、このコンポーネントだけflex-1にして余った縦スペースを
+// 吸収させる。button自体はCSS Gridの初期値align-items:stretchにより、同じ行内で一番
+// 背の高いブロックに合わせて伸びるため、結果として横並びの吹き出しの外枠の高さが揃う
 function SpeechBubble({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   return (
-    <div className="mt-3 flex items-start gap-2">
-      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-white">
+    <div className="mt-3 flex flex-1 items-stretch gap-2">
+      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center self-start overflow-hidden rounded-full ring-2 ring-white">
         {icon}
       </div>
-      <div className="relative flex-1 rounded-xl rounded-tl-sm border border-ink/15 bg-[#FBF6EC] px-3 py-2 text-xs leading-relaxed text-ink/70 before:absolute before:-left-1.5 before:top-2 before:h-3 before:w-3 before:rotate-45 before:border-b before:border-l before:border-ink/15 before:bg-[#FBF6EC]">
-        {children}
+      <div className="relative flex flex-1 items-center rounded-xl rounded-tl-sm border border-ink/15 bg-[#FBF6EC] px-3 py-2 text-xs leading-relaxed text-ink/70 before:absolute before:-left-1.5 before:top-4 before:h-3 before:w-3 before:rotate-45 before:border-b before:border-l before:border-ink/15 before:bg-[#FBF6EC]">
+        <span>{children}</span>
       </div>
     </div>
   );
@@ -659,7 +662,11 @@ export default function DiagnosisSummaryCard({
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
-          <button type="button" onClick={() => onNavigateToTab("valuation")} className={SUMMARY_ITEM_BUTTON_CLASS_NAME}>
+          <button
+            type="button"
+            onClick={() => onNavigateToTab("valuation", "valuation-judgment-section")}
+            className={SUMMARY_ITEM_BUTTON_CLASS_NAME}
+          >
             <span className="flex items-center gap-1.5 text-xs text-ink/45">
               <RealtorFaceIcon className="h-5 w-5 shrink-0" />
               不動産プロのサポート｜坪単価判定
@@ -674,53 +681,70 @@ export default function DiagnosisSummaryCard({
               <span className="mt-1 block font-heading text-xl text-ink/35">周辺相場を入力すると表示されます</span>
             )}
             {valuationResult && pricePerTsubo !== null && (
-              <p className="mt-2 text-xs text-ink/50">
-                この物件：{formatManYenPerTsubo(pricePerTsubo)}　周辺相場平均：{formatManYenPerTsubo(marketPricePerTsuboManYen)}
-              </p>
+              <span className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+                <span>
+                  <span className="block text-[11px] text-ink/40">この物件</span>
+                  <span className="font-heading text-xl text-ink">{formatManYenPerTsubo(pricePerTsubo)}</span>
+                </span>
+                <span>
+                  <span className="block text-[11px] text-ink/40">周辺相場平均</span>
+                  <span className="font-heading text-xl text-ink">{formatManYenPerTsubo(marketPricePerTsuboManYen)}</span>
+                </span>
+              </span>
             )}
             <SpeechBubble icon={<RealtorFaceIcon className="h-full w-full" />}>
               {valuationResult ? VALUATION_JUDGMENT_COMMENTS[valuationResult.judgment] : VALUATION_JUDGMENT_UNKNOWN_COMMENT}
             </SpeechBubble>
           </button>
 
-          <button type="button" onClick={() => onNavigateToTab("fp")} className={SUMMARY_ITEM_BUTTON_CLASS_NAME}>
+          <button
+            type="button"
+            onClick={() => onNavigateToTab("fp", "fp-repayment-plan-section")}
+            className={SUMMARY_ITEM_BUTTON_CLASS_NAME}
+          >
             <span className="flex items-center gap-1.5 text-xs text-ink/45">
               <FpAdvisorFaceIcon className="h-5 w-5 shrink-0" />
               FPのサポート｜返済プラン
             </span>
-            {repaymentBurden ? (
-              <span
-                className={`mt-1 inline-block rounded-md border px-3 py-1 font-heading text-lg ${REPAYMENT_BURDEN_BADGE_STYLES[repaymentBurden.level]}`}
-              >
-                {REPAYMENT_BURDEN_TIER_LABELS[repaymentBurden.level]}
-              </span>
-            ) : (
-              <span className="mt-1 block font-heading text-xl text-ink/35">世帯年収を入力すると表示されます</span>
-            )}
+            <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+              {repaymentBurden ? (
+                <span
+                  className={`inline-block rounded-md border px-3 py-1 font-heading text-lg ${REPAYMENT_BURDEN_BADGE_STYLES[repaymentBurden.level]}`}
+                >
+                  {REPAYMENT_BURDEN_TIER_LABELS[repaymentBurden.level]}
+                </span>
+              ) : (
+                <span className="block font-heading text-xl text-ink/35">世帯年収を入力すると表示されます</span>
+              )}
+              {loanScenarioAnnotation && <span className="text-xs text-ink/35">{loanScenarioAnnotation}</span>}
+            </span>
             <span className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1">
               <span>
                 <span className="block text-[11px] text-ink/40">月々返済額</span>
                 <span className="font-heading text-xl text-ink">{formatYen(displayedMonthlyPayment)}</span>
               </span>
               <span>
-                <span className="block text-[11px] text-ink/40">
-                  生涯コストの目安
-                  {loanScenarioAnnotation && <span className="ml-1 text-ink/35">{loanScenarioAnnotation}</span>}
-                </span>
+                <span className="block text-[11px] text-ink/40">生涯コストの目安</span>
                 <span className="font-heading text-xl text-ink">{formatYen(displayedNetLifetimeCost)}</span>
               </span>
             </span>
             <SpeechBubble icon={<FpAdvisorFaceIcon className="h-full w-full" />}>
-              {repaymentBurden ? REPAYMENT_BURDEN_CHARACTER_COMMENTS[repaymentBurden.level] : REPAYMENT_BURDEN_UNKNOWN_COMMENT}
+              <span className="block">
+                {repaymentBurden ? REPAYMENT_BURDEN_CHARACTER_COMMENTS[repaymentBurden.level] : REPAYMENT_BURDEN_UNKNOWN_COMMENT}
+              </span>
+              {repaymentBurden && (
+                <span className="mt-1.5 block text-ink/45">
+                  返済負担率 {repaymentBurden.ratioPercent.toFixed(1)}%。{REPAYMENT_BURDEN_DISCLAIMER_TEXT}
+                </span>
+              )}
             </SpeechBubble>
-            {repaymentBurden && (
-              <p className="mt-2 text-xs text-ink/45">
-                返済負担率 {repaymentBurden.ratioPercent.toFixed(1)}%。{REPAYMENT_BURDEN_DISCLAIMER_TEXT}
-              </p>
-            )}
           </button>
 
-          <button type="button" onClick={() => onNavigateToTab("legal")} className={SUMMARY_ITEM_BUTTON_CLASS_NAME}>
+          <button
+            type="button"
+            onClick={() => onNavigateToTab("legal", "legal-checklist-section")}
+            className={SUMMARY_ITEM_BUTTON_CLASS_NAME}
+          >
             <span className="flex items-center gap-1.5 text-xs text-ink/45">
               <LegalAdvisorFaceIcon className="h-5 w-5 shrink-0" />
               宅建士のサポート｜要確認項目数
@@ -731,7 +755,11 @@ export default function DiagnosisSummaryCard({
             </SpeechBubble>
           </button>
 
-          <button type="button" onClick={() => onNavigateToTab("inspection")} className={SUMMARY_ITEM_BUTTON_CLASS_NAME}>
+          <button
+            type="button"
+            onClick={() => onNavigateToTab("inspection", "inspection-checklist-section")}
+            className={SUMMARY_ITEM_BUTTON_CLASS_NAME}
+          >
             <span className="flex items-center gap-1.5 text-xs text-ink/45">
               <InspectorFaceIcon className="h-5 w-5 shrink-0" />
               住宅診断士のサポート｜要確認項目数

@@ -28,7 +28,7 @@ export default function LegalSection({ property }: LegalSectionProps) {
         これは一般的な注意喚起であり、法的助言ではありません。契約前には宅地建物取引士による重要事項説明を必ずご確認ください。
       </p>
 
-      <ul className="space-y-3">
+      <ul id="legal-checklist-section" className="scroll-mt-4 space-y-3">
         {checklist.map((item) => (
           <li key={item.id} className="rounded-lg border border-ink/15 bg-white p-4">
             <label className="flex items-start gap-3">

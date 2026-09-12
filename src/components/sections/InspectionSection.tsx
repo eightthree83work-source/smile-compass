@@ -28,7 +28,7 @@ export default function InspectionSection({ property }: InspectionSectionProps) 
         このチェックリストは内覧時の一般的な確認の目安であり、専門家による建物状況調査（インスペクション）の代わりにはなりません。気になる点があれば専門家への依頼をご検討ください。
       </p>
 
-      <ul className="space-y-3">
+      <ul id="inspection-checklist-section" className="scroll-mt-4 space-y-3">
         {checklist.map((item) => (
           <li key={item.id} className="rounded-lg border border-ink/15 bg-white p-4">
             <label className="flex items-start gap-3">

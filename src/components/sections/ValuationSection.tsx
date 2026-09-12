@@ -124,7 +124,7 @@ export default function ValuationSection({
         周辺相場は所在地の入力に応じて自動取得されます（国土交通省 不動産情報ライブラリの公開データに基づく概算）。SUUMO・不動産情報ライブラリで実際の周辺相場もあわせてご確認のうえ、必要であれば手入力で上書きしてください。「周辺相場を自動取得」ボタンは、住所変更後にもう一度取得し直したい場合にお使いください。
       </p>
 
-      <div className="rounded-lg border border-ink/15 bg-white p-4">
+      <div id="valuation-judgment-section" className="scroll-mt-4 rounded-lg border border-ink/15 bg-white p-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <div className="text-sm text-ink/55">坪単価（自動計算）</div>

@@ -59,6 +59,8 @@ export default function Home() {
   const [isAutoFetchingMarketPrice, setIsAutoFetchingMarketPrice] = useState(false);
   // FPのサポートタブで判定した固定/変動金利シナリオの有利判定。診断サマリーカードにも反映するためpage側で保持する
   const [loanScenarioSummary, setLoanScenarioSummary] = useState<LoanScenarioSummary | null>(null);
+  // 診断サマリーの項目クリックでタブ切り替え後にスクロールしたい要素のid（不要になったらnullに戻す）
+  const [scrollTargetId, setScrollTargetId] = useState<string | null>(null);
   // 直前に自動取得を試みた住所。同じ住所に対する再取得を防ぐ簡易キャッシュとして使う
   const lastAutoFetchedLocationRef = useRef<string | null>(null);
 
@@ -140,6 +142,23 @@ export default function Home() {
     lastAutoFetchedLocationRef.current = property.location.trim();
     setMarketPricePerTsuboManYen(value);
   };
+
+  // 診断サマリーの項目クリック：タブを切り替えたうえで、該当セクションまでスクロールする
+  const handleNavigateFromSummary = (tab: TabId, scrollTargetIdToUse: string) => {
+    setActiveTab(tab);
+    setScrollTargetId(scrollTargetIdToUse);
+  };
+
+  // タブ切り替え後のレンダリングが確定してから（requestAnimationFrameで1描画分待って）スクロールする
+  useEffect(() => {
+    if (!scrollTargetId) return;
+    const targetId = scrollTargetId;
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setScrollTargetId(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeTab, scrollTargetId]);
 
   const handleReset = () => {
     if (!window.confirm("入力内容をリセットします。よろしいですか？")) return;
@@ -249,7 +268,7 @@ export default function Home() {
           marketPricePerTsuboManYen={marketPricePerTsuboManYen}
           onSaveComparisonProperty={handleSaveComparisonProperty}
           currentNickname={savedComparisonProperties.find((s) => s.id === currentSavedPropertyId)?.nickname}
-          onNavigateToTab={setActiveTab}
+          onNavigateToTab={handleNavigateFromSummary}
           loanScenarioSummary={loanScenarioSummary}
         />
 
