@@ -1,3 +1,4 @@
+import { RepaymentBurdenLevel } from "./affordability";
 import { ValuationJudgment } from "./valuation";
 
 /**
@@ -15,6 +16,18 @@ export interface ShareSummary {
   date: string;
   /** 坪単価判定 */
   judgment: ValuationJudgment | null;
+  /**
+   * 周辺相場との乖離率（%）。judgmentがある場合のみ設定。金額そのものではなく相対的な割合のため、
+   * 既存のjudgment表示と同様、showAmountsの設定に関わらず（OFFでも）含める
+   */
+  diffPercent?: number;
+  /** 返済負担率の区分。世帯年収が入力済みの場合のみ設定 */
+  burdenLevel?: RepaymentBurdenLevel;
+  /**
+   * 返済負担率（%）。burdenLevelがある場合のみ設定。diffPercentと同様、金額そのものではなく
+   * 収入に対する相対的な割合のため、showAmountsの設定に関わらず含める
+   */
+  burdenRatioPercent?: number;
   /** 金額を表示するか */
   showAmounts: boolean;
   /** 坪単価（万円）。showAmounts=trueの場合のみ */
@@ -78,6 +91,9 @@ export function decodeShareSummary(code: string): ShareSummary | null {
         record.judgment === "undervalued" || record.judgment === "reasonable" || record.judgment === "overvalued"
           ? record.judgment
           : null,
+      diffPercent: typeof record.diffPercent === "number" ? record.diffPercent : undefined,
+      burdenLevel: normalizeBurdenLevel(record.burdenLevel),
+      burdenRatioPercent: typeof record.burdenRatioPercent === "number" ? record.burdenRatioPercent : undefined,
       showAmounts: record.showAmounts === true,
       pricePerTsubo: typeof record.pricePerTsubo === "number" ? record.pricePerTsubo : undefined,
       marketPricePerTsubo: typeof record.marketPricePerTsubo === "number" ? record.marketPricePerTsubo : undefined,
@@ -97,4 +113,10 @@ export function decodeShareSummary(code: string): ShareSummary | null {
 
 function normalizeHazardFlag(value: unknown): HazardFlag {
   return value === "yes" || value === "no" ? value : "unknown";
+}
+
+function normalizeBurdenLevel(value: unknown): RepaymentBurdenLevel | undefined {
+  return value === "comfortable" || value === "reasonable" || value === "caution" || value === "risk"
+    ? value
+    : undefined;
 }

@@ -14,6 +14,15 @@ export const VALUATION_JUDGMENT_LABELS: Record<ValuationJudgment, string> = {
   overvalued: "割高",
 };
 
+// 不動産プロ（柴犬）が坪単価判定に応じて話す一言。判定パターンごとに1箇所へまとめ、
+// 診断サマリーカード・OGPシェア画像の両方から参照する
+export const VALUATION_JUDGMENT_COMMENTS: Record<ValuationJudgment, string> = {
+  undervalued: "相場より手頃な価格だよ。掘り出し物件かもしれないね！",
+  reasonable: "相場に見合った、妥当な価格帯だね。",
+  overvalued: "相場より高めの価格帯だよ。他の物件とも比較してみよう。",
+};
+export const VALUATION_JUDGMENT_UNKNOWN_COMMENT = "周辺相場を入力すると、割安か割高か診断するよ！";
+
 export interface ValuationResult {
   /** 坪単価（万円） */
   pricePerTsuboManYen: number;

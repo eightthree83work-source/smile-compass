@@ -12,7 +12,14 @@ import {
 import { getLegalChecklist } from "@/lib/legalChecklist";
 import { getInspectionChecklist } from "@/lib/inspectionChecklist";
 import { truncateAddressToCityLevel } from "@/lib/address";
-import { ValuationJudgment, VALUATION_JUDGMENT_LABELS, calculatePricePerTsuboManYen, judgeValuation } from "@/lib/valuation";
+import {
+  VALUATION_JUDGMENT_COMMENTS,
+  VALUATION_JUDGMENT_LABELS,
+  VALUATION_JUDGMENT_UNKNOWN_COMMENT,
+  ValuationJudgment,
+  calculatePricePerTsuboManYen,
+  judgeValuation,
+} from "@/lib/valuation";
 import {
   REPAYMENT_BURDEN_BADGE_STYLES,
   REPAYMENT_BURDEN_CHARACTER_COMMENTS,
@@ -76,14 +83,6 @@ const JUDGMENT_BADGE_STYLES: Record<ValuationJudgment, string> = {
   reasonable: "border-ink/15 bg-ink/5 text-ink/70",
   overvalued: "border-[#d03b3b]/30 bg-[#d03b3b]/5 text-[#a12f2f]",
 };
-
-// 不動産プロ（柴犬）が坪単価判定に応じて話す一言。判定パターンごとに1箇所へまとめておく
-const VALUATION_JUDGMENT_COMMENTS: Record<ValuationJudgment, string> = {
-  undervalued: "相場より手頃な価格だよ。掘り出し物件かもしれないね！",
-  reasonable: "相場に見合った、妥当な価格帯だね。",
-  overvalued: "相場より高めの価格帯だよ。他の物件とも比較してみよう。",
-};
-const VALUATION_JUDGMENT_UNKNOWN_COMMENT = "周辺相場を入力すると、割安か割高か診断するよ！";
 
 /** 宅建士・住宅診断士の要確認項目数に応じたコメントの段階。件数が増えるほど確認の必要性が高まることを表す */
 type ChecklistCommentTier = "none" | "few" | "many";
@@ -330,6 +329,11 @@ export default function DiagnosisSummaryCard({
       loc: shareLocationLabel,
       date: issuedDate,
       judgment: valuationResult ? valuationResult.judgment : null,
+      // diffPercent・burdenLevel・burdenRatioPercentは金額そのものではなく相対的な割合・区分のため、
+      // 既存のjudgment同様にshowAmountsInShareの設定に関わらず含める（OGPシェア画像で主役として使うため）
+      diffPercent: valuationResult ? valuationResult.diffPercent : undefined,
+      burdenLevel: repaymentBurden?.level,
+      burdenRatioPercent: repaymentBurden?.ratioPercent,
       showAmounts: showAmountsInShare,
       ...(showAmountsInShare
         ? {
