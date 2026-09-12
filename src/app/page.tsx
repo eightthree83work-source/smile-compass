@@ -9,7 +9,7 @@ import FpSection from "@/components/sections/FpSection";
 import LegalSection from "@/components/sections/LegalSection";
 import InspectionSection from "@/components/sections/InspectionSection";
 import ValuationSection from "@/components/sections/ValuationSection";
-import { createDefaultProperty, Property } from "@/lib/types";
+import { createDefaultProperty, Property, TabId } from "@/lib/types";
 import {
   ComparisonSnapshot,
   MAX_SAVED_PROPERTIES,
@@ -27,10 +27,8 @@ import {
   RealtorFaceIcon,
 } from "@/components/icons/AdvisorCharacterImages";
 
-type TabId = "valuation" | "legal" | "inspection" | "fp";
-
 const TABS: { id: TabId; label: string; Icon: typeof RealtorFaceIcon }[] = [
-  { id: "valuation", label: "不動産屋", Icon: RealtorFaceIcon },
+  { id: "valuation", label: "不動産プロ", Icon: RealtorFaceIcon },
   { id: "legal", label: "宅建士", Icon: LegalAdvisorFaceIcon },
   { id: "inspection", label: "住宅診断士", Icon: InspectorFaceIcon },
   { id: "fp", label: "FP", Icon: FpAdvisorFaceIcon },
@@ -248,6 +246,7 @@ export default function Home() {
           marketPricePerTsuboManYen={marketPricePerTsuboManYen}
           onSaveComparisonProperty={handleSaveComparisonProperty}
           currentNickname={savedComparisonProperties.find((s) => s.id === currentSavedPropertyId)?.nickname}
+          onNavigateToTab={setActiveTab}
         />
 
         <div className="mt-8 flex gap-1 overflow-x-auto border-b border-ink/10" role="tablist">

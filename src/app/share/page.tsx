@@ -10,7 +10,7 @@ interface SharePageProps {
 const SITE_TITLE = "smile compass";
 const FALLBACK_TITLE = "smile compass ― 物件のカルテ";
 const FALLBACK_DESCRIPTION =
-  "住まい探しに、笑顔のコンパスを。不動産屋・宅建士・住宅診断士・FPの4つの視点でセルフ診断できるアプリです。";
+  "住まい探しに、笑顔のコンパスを。不動産プロ・宅建士・住宅診断士・FPの4つの視点でセルフ診断できるアプリです。";
 
 const HAZARD_STATUS_TEXT: Record<HazardFlag, string> = { yes: "該当あり", no: "該当なし", unknown: "未確認" };
 
@@ -78,7 +78,7 @@ export default async function SharePage({ searchParams }: SharePageProps) {
             <>
               <h1 className="font-heading text-2xl text-ink">{summary.loc}の物件のカルテ</h1>
               <p className="mt-2 text-sm text-ink/60">
-                不動産屋・宅建士・住宅診断士・FPの4つの視点で診断した結果です。金額などの詳しい内容は、ご自身の物件で無料診断して確認できます。
+                不動産プロ・宅建士・住宅診断士・FPの4つの視点で診断した結果です。金額などの詳しい内容は、ご自身の物件で無料診断して確認できます。
               </p>
             </>
           ) : (

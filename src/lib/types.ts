@@ -1,3 +1,6 @@
+/** 4視点タブの識別子。診断サマリーカードから該当タブへ遷移する際にも共通で使う */
+export type TabId = "valuation" | "legal" | "inspection" | "fp";
+
 export type StructureType = "wood" | "steel" | "rc" | "src" | "other";
 
 export const STRUCTURE_TYPE_LABELS: Record<StructureType, string> = {

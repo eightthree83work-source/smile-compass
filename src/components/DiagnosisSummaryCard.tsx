@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { toPng } from "html-to-image";
-import { Property } from "@/lib/types";
+import { Property, TabId } from "@/lib/types";
 import { calculateLifetimeCostEstimate, calculateLoanRepayment, simulateMortgageDeduction } from "@/lib/calculations";
 import { getLegalChecklist } from "@/lib/legalChecklist";
 import { getInspectionChecklist } from "@/lib/inspectionChecklist";
@@ -31,6 +31,8 @@ interface DiagnosisSummaryCardProps {
   onSaveComparisonProperty: (nickname: string, snapshot: ComparisonSnapshot) => SaveComparisonPropertyResult;
   /** 保存した物件一覧から開いて編集中の場合、そのニックネーム（再保存ダイアログの初期値に使う） */
   currentNickname?: string | null;
+  /** サマリー内の各項目クリック時に、対応するタブへ切り替える */
+  onNavigateToTab: (tab: TabId) => void;
 }
 
 const yenFormatter = new Intl.NumberFormat("ja-JP", {
@@ -48,6 +50,12 @@ const JUDGMENT_STYLES: Record<string, string> = {
   reasonable: "text-ink",
   overvalued: "text-accent",
 };
+
+// サマリー項目クリックで該当タブへ遷移できることを示す。ホバー時の薄い背景色・
+// キーボードフォーカス時のリングでフィードバックする（-m-2/p-2は見た目のレイアウトを
+// 変えずにクリック可能領域とホバー背景を項目テキストの外側まで広げるため）
+const SUMMARY_ITEM_BUTTON_CLASS_NAME =
+  "-m-2 flex w-full cursor-pointer flex-col rounded-md p-2 text-left transition-colors hover:bg-ink/5 active:bg-ink/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 const SHARE_APP_URL = "smile-compass.vercel.app";
 const SHARE_TEXT = "smile compassで住まいの診断をしてみました🧭\n#smilecompass #住まい探し";
@@ -165,6 +173,7 @@ export default function DiagnosisSummaryCard({
   marketPricePerTsuboManYen,
   onSaveComparisonProperty,
   currentNickname,
+  onNavigateToTab,
 }: DiagnosisSummaryCardProps) {
   const shareCardRef = useRef<HTMLDivElement>(null);
   const [showFullAddress, setShowFullAddress] = useState(false);
@@ -565,54 +574,54 @@ export default function DiagnosisSummaryCard({
           </div>
         </div>
 
-        <dl className="mt-6 grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
-          <div>
-            <dt className="flex items-center gap-1.5 text-xs text-ink/45">
+        <div className="mt-6 grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
+          <button type="button" onClick={() => onNavigateToTab("valuation")} className={SUMMARY_ITEM_BUTTON_CLASS_NAME}>
+            <span className="flex items-center gap-1.5 text-xs text-ink/45">
               <RealtorFaceIcon className="h-5 w-5 shrink-0" />
               不動産プロのサポート｜坪単価判定
-            </dt>
-            <dd
+            </span>
+            <span
               className={`mt-1 font-heading text-xl ${
                 valuationResult ? JUDGMENT_STYLES[valuationResult.judgment] : "text-ink/35"
               }`}
             >
               {valuationResult ? VALUATION_JUDGMENT_LABELS[valuationResult.judgment] : "周辺相場を入力すると表示されます"}
-            </dd>
-          </div>
+            </span>
+          </button>
 
-          <div>
-            <dt className="flex items-center gap-1.5 text-xs text-ink/45">
+          <button type="button" onClick={() => onNavigateToTab("fp")} className={SUMMARY_ITEM_BUTTON_CLASS_NAME}>
+            <span className="flex items-center gap-1.5 text-xs text-ink/45">
               <FpAdvisorFaceIcon className="h-5 w-5 shrink-0" />
               FPのサポート｜月々返済額
-            </dt>
-            <dd className="mt-1 font-heading text-xl text-ink">{formatYen(repayment.monthlyPayment)}</dd>
-          </div>
+            </span>
+            <span className="mt-1 font-heading text-xl text-ink">{formatYen(repayment.monthlyPayment)}</span>
+          </button>
 
-          <div>
-            <dt className="flex items-center gap-1.5 text-xs text-ink/45">
+          <button type="button" onClick={() => onNavigateToTab("fp")} className={SUMMARY_ITEM_BUTTON_CLASS_NAME}>
+            <span className="flex items-center gap-1.5 text-xs text-ink/45">
               <FpAdvisorFaceIcon className="h-5 w-5 shrink-0" />
               FPのサポート｜生涯コストの目安
-            </dt>
-            <dd className="mt-1 font-heading text-xl text-ink">{formatYen(lifetimeCost.netLifetimeCost)}</dd>
-          </div>
+            </span>
+            <span className="mt-1 font-heading text-xl text-ink">{formatYen(lifetimeCost.netLifetimeCost)}</span>
+          </button>
 
-          <div>
-            <dt className="flex items-center gap-1.5 text-xs text-ink/45">
+          <button type="button" onClick={() => onNavigateToTab("legal")} className={SUMMARY_ITEM_BUTTON_CLASS_NAME}>
+            <span className="flex items-center gap-1.5 text-xs text-ink/45">
               <span className="flex -space-x-1.5">
                 <LegalAdvisorFaceIcon className="h-5 w-5 shrink-0 ring-2 ring-white" />
                 <InspectorFaceIcon className="h-5 w-5 shrink-0 ring-2 ring-white" />
               </span>
               宅建士・住宅診断士のサポート｜要確認項目数
-            </dt>
-            <dd className="mt-1 font-heading text-xl text-ink">
+            </span>
+            <span className="mt-1 font-heading text-xl text-ink">
               {legalChecklist.length + inspectionChecklist.length}項目
               <span className="ml-2 font-sans text-sm text-ink/50">
                 （宅建士{legalChecklist.length}・診断士{inspectionChecklist.length}
                 {inspectionPriorityCount > 0 ? `／優先${inspectionPriorityCount}` : ""}）
               </span>
-            </dd>
-          </div>
-        </dl>
+            </span>
+          </button>
+        </div>
 
         <div className="mt-6 flex items-center justify-end gap-1.5 border-t border-ink/10 pt-3 text-ink/35">
           <svg width="16" height="16" viewBox="0 0 100 100" aria-hidden="true">

@@ -298,7 +298,7 @@ function renderCard(summary: ShareSummary | null) {
               {buildFallbackTitle()}
             </div>
             <div style={{ display: "flex", fontSize: 20, color: "rgba(26,36,32,0.6)", marginTop: 12, whiteSpace: "nowrap" }}>
-              不動産屋・宅建士・住宅診断士・FPの4つの視点でセルフ診断できるアプリです
+              不動産プロ・宅建士・住宅診断士・FPの4つの視点でセルフ診断できるアプリです
             </div>
           </div>
         )}

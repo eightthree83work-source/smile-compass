@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 const APP_TITLE = "smile compass";
 const APP_DESCRIPTION =
-  "住まい探しに、笑顔のコンパスを。中古戸建ての購入を検討する30〜40代に向けて、不動産屋・宅建士・住宅診断士・FPの4つの視点でセルフ診断できるアプリです。";
+  "住まい探しに、笑顔のコンパスを。中古戸建ての購入を検討する30〜40代に向けて、不動産プロ・宅建士・住宅診断士・FPの4つの視点でセルフ診断できるアプリです。";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://smile-compass.vercel.app"),
