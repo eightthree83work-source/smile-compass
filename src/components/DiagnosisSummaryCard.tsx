@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import { Property, TabId } from "@/lib/types";
-import { calculateLifetimeCostEstimate, calculateLoanRepayment, simulateMortgageDeduction } from "@/lib/calculations";
+import {
+  LoanScenarioSummary,
+  calculateLifetimeCostEstimate,
+  calculateLoanRepayment,
+  simulateMortgageDeduction,
+} from "@/lib/calculations";
 import { getLegalChecklist } from "@/lib/legalChecklist";
 import { getInspectionChecklist } from "@/lib/inspectionChecklist";
 import { truncateAddressToCityLevel } from "@/lib/address";
@@ -33,7 +38,14 @@ interface DiagnosisSummaryCardProps {
   currentNickname?: string | null;
   /** サマリー内の各項目クリック時に、対応するタブへ切り替える */
   onNavigateToTab: (tab: TabId) => void;
+  /** FPのサポートタブで判定した固定/変動金利シナリオの有利判定。未取得（FPタブ未訪問）の場合はnull */
+  loanScenarioSummary: LoanScenarioSummary | null;
 }
+
+const LOAN_SCENARIO_ANNOTATION: Record<LoanScenarioSummary["mostAdvantageous"], string> = {
+  fixed: "（固定金利想定）",
+  variableRising: "（変動金利上昇シナリオ想定）",
+};
 
 const yenFormatter = new Intl.NumberFormat("ja-JP", {
   style: "currency",
@@ -174,6 +186,7 @@ export default function DiagnosisSummaryCard({
   onSaveComparisonProperty,
   currentNickname,
   onNavigateToTab,
+  loanScenarioSummary,
 }: DiagnosisSummaryCardProps) {
   const shareCardRef = useRef<HTMLDivElement>(null);
   const [showFullAddress, setShowFullAddress] = useState(false);
@@ -205,6 +218,12 @@ export default function DiagnosisSummaryCard({
 
   const repayment = calculateLoanRepayment(property);
   const lifetimeCost = calculateLifetimeCostEstimate(property);
+
+  // FPのサポートタブで固定/変動金利シナリオを比較済みの場合、有利なほうの数値をサマリーに反映する
+  // （FPタブを一度も開いていない場合はnullのままなので、従来どおり固定金利の試算結果を使う）
+  const displayedMonthlyPayment = loanScenarioSummary?.monthlyPayment ?? repayment.monthlyPayment;
+  const displayedNetLifetimeCost = loanScenarioSummary?.netLifetimeCost ?? lifetimeCost.netLifetimeCost;
+  const loanScenarioAnnotation = loanScenarioSummary ? LOAN_SCENARIO_ANNOTATION[loanScenarioSummary.mostAdvantageous] : null;
 
   const legalChecklist = getLegalChecklist(property);
   const inspectionChecklist = getInspectionChecklist(property);
@@ -594,7 +613,12 @@ export default function DiagnosisSummaryCard({
               <FpAdvisorFaceIcon className="h-5 w-5 shrink-0" />
               FPのサポート｜月々返済額
             </span>
-            <span className="mt-1 font-heading text-xl text-ink">{formatYen(repayment.monthlyPayment)}</span>
+            <span className="mt-1 font-heading text-xl text-ink">
+              {formatYen(displayedMonthlyPayment)}
+              {loanScenarioAnnotation && (
+                <span className="ml-1.5 font-sans text-xs font-normal text-ink/40">{loanScenarioAnnotation}</span>
+              )}
+            </span>
           </button>
 
           <button type="button" onClick={() => onNavigateToTab("fp")} className={SUMMARY_ITEM_BUTTON_CLASS_NAME}>
@@ -602,7 +626,12 @@ export default function DiagnosisSummaryCard({
               <FpAdvisorFaceIcon className="h-5 w-5 shrink-0" />
               FPのサポート｜生涯コストの目安
             </span>
-            <span className="mt-1 font-heading text-xl text-ink">{formatYen(lifetimeCost.netLifetimeCost)}</span>
+            <span className="mt-1 font-heading text-xl text-ink">
+              {formatYen(displayedNetLifetimeCost)}
+              {loanScenarioAnnotation && (
+                <span className="ml-1.5 font-sans text-xs font-normal text-ink/40">{loanScenarioAnnotation}</span>
+              )}
+            </span>
           </button>
 
           <button type="button" onClick={() => onNavigateToTab("legal")} className={SUMMARY_ITEM_BUTTON_CLASS_NAME}>

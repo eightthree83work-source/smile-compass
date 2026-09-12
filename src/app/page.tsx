@@ -9,6 +9,7 @@ import FpSection from "@/components/sections/FpSection";
 import LegalSection from "@/components/sections/LegalSection";
 import InspectionSection from "@/components/sections/InspectionSection";
 import ValuationSection from "@/components/sections/ValuationSection";
+import { LoanScenarioSummary } from "@/lib/calculations";
 import { createDefaultProperty, Property, TabId } from "@/lib/types";
 import {
   ComparisonSnapshot,
@@ -56,6 +57,8 @@ export default function Home() {
   // 不動産プロのサポートタブの周辺相場は、診断サマリーカードでも使うためpage側で保持する
   const [marketPricePerTsuboManYen, setMarketPricePerTsuboManYen] = useState(0);
   const [isAutoFetchingMarketPrice, setIsAutoFetchingMarketPrice] = useState(false);
+  // FPのサポートタブで判定した固定/変動金利シナリオの有利判定。診断サマリーカードにも反映するためpage側で保持する
+  const [loanScenarioSummary, setLoanScenarioSummary] = useState<LoanScenarioSummary | null>(null);
   // 直前に自動取得を試みた住所。同じ住所に対する再取得を防ぐ簡易キャッシュとして使う
   const lastAutoFetchedLocationRef = useRef<string | null>(null);
 
@@ -247,6 +250,7 @@ export default function Home() {
           onSaveComparisonProperty={handleSaveComparisonProperty}
           currentNickname={savedComparisonProperties.find((s) => s.id === currentSavedPropertyId)?.nickname}
           onNavigateToTab={setActiveTab}
+          loanScenarioSummary={loanScenarioSummary}
         />
 
         <div className="mt-8 flex gap-1 overflow-x-auto border-b border-ink/10" role="tablist">
@@ -277,7 +281,9 @@ export default function Home() {
         )}
         {activeTab === "legal" && <LegalSection property={property} />}
         {activeTab === "inspection" && <InspectionSection property={property} />}
-        {activeTab === "fp" && <FpSection property={property} onChange={setProperty} />}
+        {activeTab === "fp" && (
+          <FpSection property={property} onChange={setProperty} onScenarioSummaryChange={setLoanScenarioSummary} />
+        )}
       </main>
 
       {showSavedPropertiesModal && (

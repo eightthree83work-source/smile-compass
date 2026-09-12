@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -26,10 +26,13 @@ import { DEFAULT_INTEREST_RATE_ANNUAL, DEFAULT_LOAN_TERM_YEARS, Property } from 
 import {
   AmortizationYearPoint,
   LifetimeExpenseYearPoint,
+  LoanScenarioKind,
+  LoanScenarioSummary,
   RateChangeEvent,
   calculateAmortizedLoan,
   calculateLifetimeCostEstimate,
   calculateLoanRepayment,
+  calculateMultiPhaseLifetimeCostEstimate,
   generateAmortizationSchedule,
   generateLifetimeExpenseTimeline,
   generateMultiPhaseAmortizationSchedule,
@@ -42,6 +45,8 @@ import {
 interface FpSectionProps {
   property: Property;
   onChange: (next: Property) => void;
+  /** 固定/変動金利シナリオの比較結果（有利なほう）が変わるたびに、診断サマリーカード連携用に通知する */
+  onScenarioSummaryChange: (summary: LoanScenarioSummary) => void;
 }
 
 const MLIT_HOUSING_SUPPORT_SEARCH_URL =
@@ -595,7 +600,7 @@ function RateComparisonChart({ data, switchMarkers }: { data: RateComparisonPoin
   );
 }
 
-export default function FpSection({ property, onChange }: FpSectionProps) {
+export default function FpSection({ property, onChange, onScenarioSummaryChange }: FpSectionProps) {
   const loanPrincipal = getLoanPrincipal(property);
   const repayment = calculateLoanRepayment(property);
   const repaymentSchedule = generateAmortizationSchedule(loanPrincipal, property.interestRateAnnual, property.loanTermYears);
@@ -624,11 +629,11 @@ export default function FpSection({ property, onChange }: FpSectionProps) {
     ? `https://www.google.com/search?q=${encodeURIComponent(`${trimmedLocation} 住宅購入 補助金`)}`
     : null;
 
-  // 固定金利 vs 変動金利の比較用。初期値のみPropertyの現在の金利をコピーし、以降は独立して編集できる
-  // 「0.5」のような0始まりの小数やマイナス値を頭から入力できるよう、文字列で保持し計算時にのみ数値化する
-  const [fixedRateAnnualInput, setFixedRateAnnualInput] = useState(() => String(property.interestRateAnnual));
+  // 固定金利シナリオの金利は「返済計画」の金利（property.interestRateAnnual）と同一の状態を参照する
+  // （どちらかを変更すればもう片方にも反映される）。変動金利シナリオの初期金利は独立して編集できる。
+  // 「0.5」のような0始まりの小数を頭から入力できるよう、変動金利側は文字列で保持し計算時にのみ数値化する
+  const fixedRateAnnual = property.interestRateAnnual;
   const [variableRateAnnualInput, setVariableRateAnnualInput] = useState(() => String(property.interestRateAnnual));
-  const fixedRateAnnual = parseSignedDecimal(fixedRateAnnualInput);
   const variableRateAnnual = parseSignedDecimal(variableRateAnnualInput);
 
   // 変動金利の上昇シナリオ：簡単入力モード（上昇幅・間隔・回数）と詳細設定モード（行の自由編集）を切り替えられる
@@ -715,7 +720,7 @@ export default function FpSection({ property, onChange }: FpSectionProps) {
       position: (index % 2 === 0 ? "insideTopLeft" : "insideBottomLeft") as "insideTopLeft" | "insideBottomLeft",
     }));
 
-  const rateScenarios = [
+  const rateScenarios: { key: LoanScenarioKind; label: string; monthlyPaymentLabel: string; totalRepayment: number; totalInterest: number }[] = [
     {
       key: "fixed",
       label: "固定金利のまま",
@@ -735,9 +740,30 @@ export default function FpSection({ property, onChange }: FpSectionProps) {
     },
   ];
 
-  const mostAdvantageousKey = rateScenarios.reduce((best, current) =>
-    current.totalRepayment < best.totalRepayment ? current : best,
-  ).key;
+  // 総返済額が少ないほうを「最も有利」と判定する（同額なら固定金利を採用）
+  const mostAdvantageousKey: LoanScenarioKind =
+    variableRisingSummary.totalRepayment < fixedScenario.totalRepayment ? "variableRising" : "fixed";
+
+  // 「最も有利」なシナリオの生涯コストの目安（固定資産税等・維持費は金利に依存しないため共通）
+  const variableLifetimeCost = calculateMultiPhaseLifetimeCostEstimate(property, variableRateAnnual, rateChangeEvents);
+  const advantageousScenarioSummary: LoanScenarioSummary =
+    mostAdvantageousKey === "variableRising"
+      ? {
+          mostAdvantageous: "variableRising",
+          monthlyPayment: variableRisingSummary.phases[0]?.monthlyPayment ?? 0,
+          netLifetimeCost: variableLifetimeCost.netLifetimeCost,
+        }
+      : {
+          mostAdvantageous: "fixed",
+          monthlyPayment: fixedScenario.monthlyPayment,
+          netLifetimeCost: lifetimeCost.netLifetimeCost,
+        };
+
+  // 有利なシナリオの判定結果を、診断サマリーカード（page.tsx経由）に通知する
+  useEffect(() => {
+    onScenarioSummaryChange(advantageousScenarioSummary);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [advantageousScenarioSummary.mostAdvantageous, advantageousScenarioSummary.monthlyPayment, advantageousScenarioSummary.netLifetimeCost]);
 
   return (
     <section className="mt-8 space-y-8">
@@ -837,18 +863,20 @@ export default function FpSection({ property, onChange }: FpSectionProps) {
         </p>
 
         <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <SignedDecimalInput
-            id="fixedRateAnnual"
-            label={
-              <>
-                固定金利シナリオ
-                <br />
-                （年率 %）
-              </>
-            }
-            value={fixedRateAnnualInput}
-            onChange={setFixedRateAnnualInput}
-          />
+          <div>
+            <label htmlFor="fixedRateAnnual" className="block text-sm font-medium text-ink/80">
+              固定金利シナリオ
+              <br />
+              （年率 %）
+            </label>
+            <CurrencyInput
+              id="fixedRateAnnual"
+              className={INPUT_CLASS_NAME}
+              value={property.interestRateAnnual}
+              onChange={(next) => onChange({ ...property, interestRateAnnual: next ?? DEFAULT_INTEREST_RATE_ANNUAL })}
+            />
+            <p className="mt-1 text-xs text-ink/40">上の「返済計画」の金利と共通です</p>
+          </div>
           <SignedDecimalInput
             id="variableRateAnnual"
             label={

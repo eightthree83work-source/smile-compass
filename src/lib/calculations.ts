@@ -427,6 +427,49 @@ export function simulateMortgageDeduction(
   return { eligibility, years, totalDeduction };
 }
 
+/**
+ * 変動金利の上昇シナリオ（多段階の金利変更）を前提とした住宅ローン控除のシミュレーション。
+ * simulateMortgageDeductionと同じロジックだが、年末残高を単一金利のcalculateRemainingBalanceではなく
+ * generateMultiPhaseAmortizationScheduleの多段階スケジュールから取得する点のみが異なる。
+ */
+export function simulateMultiPhaseMortgageDeduction(
+  property: Property,
+  initialAnnualRate: number,
+  rateChangeEvents: RateChangeEvent[],
+  currentYear: number = new Date().getFullYear(),
+): MortgageDeductionSimulation {
+  const eligibility = getMortgageDeductionEligibility(property, currentYear);
+
+  if (!eligibility.eligible) {
+    return { eligibility, years: [], totalDeduction: 0 };
+  }
+
+  const loanPrincipal = getLoanPrincipal(property);
+  const loanLimitYen = eligibility.loanLimitManYen * 10000;
+  const schedule = generateMultiPhaseAmortizationSchedule(
+    loanPrincipal,
+    property.loanTermYears,
+    initialAnnualRate,
+    rateChangeEvents,
+  );
+
+  const years: MortgageDeductionYear[] = [];
+  let totalDeduction = 0;
+
+  for (let year = 1; year <= eligibility.deductionPeriodYears; year++) {
+    const point = schedule[year - 1];
+    if (!point) break; // 完済後は控除対象の残高がないため終了
+
+    const deductionBase = Math.min(point.endBalance, loanLimitYen);
+    const deductionAmount = Math.round(deductionBase * DEDUCTION_RATE);
+
+    years.push({ year, yearEndBalance: point.endBalance, deductionBase, deductionAmount });
+    totalDeduction += deductionAmount;
+  }
+
+  return { eligibility, years, totalDeduction };
+}
+
 // ---------------------------------------------------------------------------
 // 不動産取得税・登録免許税の軽減
 // ---------------------------------------------------------------------------
@@ -616,4 +659,48 @@ export function calculateLifetimeCostEstimate(
     totalMaintenanceCost: totalMaintenanceCostYen,
     netLifetimeCost: totalRepayment - totalDeduction + totalPropertyTaxYen + totalMaintenanceCostYen,
   };
+}
+
+/**
+ * 変動金利の上昇シナリオを前提とした生涯コストの目安。固定資産税等・維持費は金利によらないため
+ * calculateHoldingPeriodCosts（単一金利版と共通）をそのまま使い、総返済額・住宅ローン控除のみ
+ * 多段階金利のスケジュール（summarizeMultiPhaseLoan・simulateMultiPhaseMortgageDeduction）で求める。
+ */
+export function calculateMultiPhaseLifetimeCostEstimate(
+  property: Property,
+  initialAnnualRate: number,
+  rateChangeEvents: RateChangeEvent[],
+  currentYear: number = new Date().getFullYear(),
+): LifetimeCostEstimate {
+  const loanPrincipal = getLoanPrincipal(property);
+  const { totalRepayment } = summarizeMultiPhaseLoan(loanPrincipal, property.loanTermYears, initialAnnualRate, rateChangeEvents);
+  const { totalDeduction } = simulateMultiPhaseMortgageDeduction(property, initialAnnualRate, rateChangeEvents, currentYear);
+  const { totalPropertyTaxYen, isPropertyTaxEstimated, totalMaintenanceCostYen } =
+    calculateHoldingPeriodCosts(property);
+
+  return {
+    totalRepayment,
+    totalMortgageDeduction: totalDeduction,
+    totalPropertyTax: totalPropertyTaxYen,
+    isPropertyTaxEstimated,
+    totalMaintenanceCost: totalMaintenanceCostYen,
+    netLifetimeCost: totalRepayment - totalDeduction + totalPropertyTaxYen + totalMaintenanceCostYen,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 固定金利 vs 変動金利シナリオの採用結果（診断サマリーカードとの連携用）
+// ---------------------------------------------------------------------------
+
+export type LoanScenarioKind = "fixed" | "variableRising";
+
+/**
+ * FPのサポートタブで比較した固定金利・変動金利（上昇シナリオ）のうち、総返済額が少ない
+ * 「最も有利」なほうの月々返済額・生涯コストの目安。物件カルテのDIAGNOSIS SUMMARYに反映する。
+ */
+export interface LoanScenarioSummary {
+  mostAdvantageous: LoanScenarioKind;
+  /** 採用したシナリオの月々返済額（円）。変動金利の場合は上昇前の初回の返済額 */
+  monthlyPayment: number;
+  netLifetimeCost: number;
 }
